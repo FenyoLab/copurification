@@ -1,0 +1,91 @@
+Name	Short Name
+Aluminum ammonium sulfate	Al NH4 (SO4)2
+Ammonium bromide	NH4Br
+Ammonium chloride	NH4Cl
+Ammonium fluoride	NH4F
+Ammonium formate	NH4 Form
+Ammonium iodide	NH4I
+Ammonium molybdate	NH4 molyb
+Ammonium nitrate	NH4NO3
+Ammonium sulfate	(NH4)2SO4
+Ammonium sulfite	NH4SO3
+Barium chloride	BaCl2
+Cadmium acetate	Cd Acet
+Cadmium chloride	CdCl2
+Cadmium sulfate	CdSO4
+Calcium chloride	CaCl2
+Cesium chloride	CsCl
+Cesium sulfate	CsSO4
+Chromium (III) chloride	CrCl3
+Cobalt (II) chloride	CoCl2
+Cobalt (III) Hexamine chloride	Co(NH3)6Cl3
+Copper (II) chloride	CuCl2
+Copper sulfate	CuSO4
+di-Ammonium tartrate	(NH4)2 Tart
+di-Sodium malate	Na2 Mal
+di-Sodium malonate	Na2 Malon
+di-Sodium succinate	Na2 Succ
+di-Sodium tartrate	Na2 Tart
+Gadolinium (III) bromide	GdBr3
+Holmium (III) chloride	HoCl3
+Iron (II) chloride	FeCl2
+Iron (II) sulfate	FeSO4
+Iron (III) chloride	FeCl3
+Iron (III) sulfate	Fe2(SO4)3
+Lanthanum (III) acetate	La Acet3
+Lithium acetate	Li Acet
+Lithium chloride	LiCl
+Lithium nitrate	LiNO3
+Lithium sulfate	LiSO4
+Magnesium acetate	Mg Acet
+Magnesium chloride	MgCl2
+Magnesium formate 	Mg Form
+Magnesium nitrate	Mg(NO3)2
+Magnesium sulfate	MgSO4
+Manganese (II) chloride	MnCl2
+Manganese (II) sulfate	MnSO4
+Nickel (II) chloride	NiCl2
+Nickel (II) sulfate	NiSO4
+Potassium acetate	K Acet
+Potassium bromide	KBr
+Potassium chloride	KCl
+Potassium fluoride	KF
+Potassium formate	K Form
+Potassium iodide	KI
+Potassium nitrate	KNO3
+Potassium Sodium tartrate	K Na Tart
+Potassium sulfate	K2SO4
+Potassium thiocyanate	KSCN
+Praseodymium (III) acetate	Pr Acet
+Putrescine dihydrochloride	Put HCl2
+Rubidium bromide	RbBr
+Ruthenium (III) chloride	RuCl3
+Samarium (III) chloride	SmCl3
+Samarium(III) bromide	SmBr3
+Sodium acetate	Na Acet
+Sodium azide	NaN3
+Sodium bromide	NaBr
+Sodium bromide	NaBr
+Sodium chloride	NaCl
+Sodium fluoride	NaF
+Sodium formate	Na Form
+Sodium iodide	NaI
+Sodium Malonate	C3H2O4Na
+Sodium nitrate	NaNO3
+Sodium orthovanadate	Na3VO4
+Sodium potassium tartrate	Na K Tart
+Sodium sulfate	Na2SO4
+Sodium Sulfate	Na2SO4
+Sodium Tetraborate	Na2B4O7
+Sodium thiocyanate	NaSCN
+Sodium Thiosulfate	Na2S2O3
+Tacsimate	Tacsimate
+tri-Ammonium citrate	(NH4)3 Cit
+tri-Lithium citrate	Li3 Cit
+tri-Potassium citrate	K3 Cit
+tri-Sodium citrate	Na3 Cit
+Yttrium (III) chloride	YCl3
+Yttrium (III) nitrate	Y(NO3)3
+Zinc acetate	Zn Acet
+Zinc chloride	ZnCl2
+Zinc sulfate	ZnSO4

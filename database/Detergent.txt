@@ -1,0 +1,112 @@
+Name	Short Name
+"2,6-Dimethyl-4-heptyl-beta-D-maltoside"	C7 DM Mal
+Amidosulfobetaine-14	ASB-14
+Amidosulfobetaine-14	ASB-14
+ANAPO-80	ANA 80
+ANAPOE-20	ANA 20
+ANAPOE-35	ANA 35
+ANAPOE-58	ANA 58
+ANAPOE-C10E6	ANA C10E6
+ANAPOE-C10E9	ANA C10E9
+ANAPOE-C12E10 	ANA C12E10
+ANAPOE-C13E8 	ANA C13E8
+ANAPOE-X-114	ANA X114
+ANAPOE-X-305	ANA X305
+ANAPOE-X-405	ANA X405
+ASB-C80	ASB-C80
+BAM	BAM
+"Big CHAP, deoxy"	d-BCHAP
+Big CHAPS	Big CHAP
+BRIJ 56	Brij 56
+BRIJ 58	Brij 58
+C-HEGA-10	C-HEGA10
+C-HEGA-11	C-HEGA11
+C-HEGA-8	C-HEGA8
+C-HEGA-9	C-HEGA9
+C12E8	C12E8
+C12E9	C12E9
+C8E4	C8E4
+C8E5	C8E5
+Cetyltrimethylammonium bromide	CTAB
+CHAPS	CHAPS
+CHAPSO	CHAPSO
+CYCLOFOS-3	CF3
+CYMAL -4	CYMAL4
+CYMAL -5	CYMAL5
+CYMAL-1	CYMAL1
+CYMAL-2	CYMAL2
+CYMAL-3	CYMAL3
+CYMAL-6	CYMAL6
+CYMAL-7	CYMAL7
+DDMAB	DDMAB
+Digitonin	Digitonin
+Dimethyloctylphosphine oxide	DMOPO
+Dodecyltrimethylammonium chloride	C12 TMA
+Elugent	Elugent
+Empigen	Empigen
+FOS-Choline-10	FC10
+FOS-Choline-12	FC12
+FOS-Choline-8	FC8
+"FOS-Choline-8, fluorinated"	f-FC8
+FOS-Choline-9	FC9
+Fos-choline14	FC14
+FOS-MEA-10	FM10
+HECAMEG	HECAMEG
+HEGA-10	HEGA10
+HEGA-8	HEGA8
+HEGA-9	HEGA9
+Hexaethylene glycol monooctyl ether	6EG-o-C8
+IPTG	IPTG
+Lauryl Maltose Neopentyl Glycol	LMNG
+LysoFos Choline 10	LFC10
+LysoFos Choline 12	LFC12
+MEGA-10	MEGA10
+MEGA-8	MEGA8
+MEGA-9	MEGA9
+n-Decanoylsucrose	C10 Suc
+n-Decyl-beta-D-maltoside	C10 Mal
+n-Decyl-beta-D-thiomaltoside	C10 t-Mal
+"n-Decyl-N,N-dimethylglycine"	C10 DMG
+n-Dodecyl-beta-D-maltoside	DDM
+"n-Dodecyl-beta-iminodipropionic acid, monosodium salt"	C12 IDPA
+"n-Dodecyl-N,N-dimethylamine-N-oxide"	LDAO
+"n-Dodecyl-N,N-dimethylglycine"	C12 DMG
+n-Heptyl-beta-D-thioglucoside	C7 t-Gluc
+n-Hexadecyl-beta-D-maltoside	C16 Mal
+n-Hexyl-beta-D-glucoside	C6 Gluc
+N-Lauroylsarcosine sodium salt	Sarcosyl
+n-Nonyl-beta-D-glucoside	C9 Gluc
+n-Nonyl-beta-D-maltoside	C9 Mal
+n-Nonyl-beta-D-thioglucoside	C9 t-Gluc
+n-Nonyl-beta-D-thiomaltoside	C9 t-Mal
+n-Octanoylsucrose	C8 Suc
+n-Octyl-beta-D-galactoside	C8 Gal
+n-Octyl-beta-D-glucoside	BOG
+n-Octyl-beta-D-thioglucoside	C8 t-Gluc
+n-Octyl-beta-D-thiomaltoside	C8 t-Mal
+n-Tetradecyl-beta-D-maltoside	C14 Mal
+n-Tridecyl-beta-D-maltoside	C13 Mal
+n-Undecyl-beta-D-maltoside	C12 Mal
+"n-Undecyl-N,N-Dimethylamine-Oxide"	C11 DMO
+Non-Detergent Sulfobetaine 195	NDSB-195
+Non-Detergent Sulfobetaine 201	NDSB-201
+Non-Detergent Sulfobetaine 211	NDSB-211
+Non-Detergent Sulfobetaine 256	NDSB-256
+NP-40	NP-40
+"Octyl maltoside, fluorinated"	f-OM
+Pluronic F-68	Plur F68
+Saponin	Saponin
+Sodium cholate	Na Chol
+Sodium deoxycholate	Na d-Chol
+Sodium dodecanoyl sarcosine	Na C12 Sarc
+Sodium dodecyl sulfate	SDS
+Sodium Taurodeoxycholate	Taurodeo
+Sucrose monolaurate	Suc laur
+Thesit	Thesit
+TRITON X-100	TRIT X100
+Tween 20	Tween 20
+TWEEN 80	TWEEN 80
+ZWITTERGENT 3-08	ZWIT 3-08
+ZWITTERGENT 3-10	ZWIT 3-10
+ZWITTERGENT 3-12	ZWIT 3-12
+ZWITTERGENT 3-14	ZWIT 3-14

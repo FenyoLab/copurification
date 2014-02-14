@@ -1,0 +1,23 @@
+*If using Apache web server, add the following lines, adjusting for your system, to the httpd.conf file*
+
+Alias /copurification-data/ "D:/NCDIR/96-Well/data/"
+<Directory "D:/NCDIR/96-Well/data/">
+    AllowOverride None
+    Options None
+    Order allow,deny
+    Allow from all
+</Directory>  
+Alias /copurification-html/ "D:/NCDIR/96-Well/html/"
+<Directory "D:/NCDIR/96-Well/html/">
+    AllowOverride None
+    Options None
+    Order allow,deny
+    Allow from all
+</Directory>
+ScriptAlias /copurification-cgi/ "D:/NCDIR/96-Well/cgi-bin/"
+<Directory "D:/NCDIR/96-Well/cgi-bin/">
+    AllowOverride None
+    Options None
+    Order allow,deny
+    Allow from all
+</Directory>

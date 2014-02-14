@@ -1,0 +1,45 @@
+Name	Short Name
+ACES	ACES
+Acetamidoglycine	AAG
+ADA	ADA
+Ammonium acetate	NH4 Acet
+ammonium citrate	NH4 Cit
+Ammonium phosphate	NH4 Phos
+BES	BES
+BICINE	BICINE
+BIS-TRIS	BIS-TRIS
+BIS-TRIS propane	BIS-TRIS prop
+CAPS	CAPS
+CAPSO	CAPSO
+CBTP	CBTP
+CHES	CHES
+Cholamine chloride	Cholamine chloride
+EPPS	EPPS
+Glycine-NaOH	Gly-NaOH
+Glycineamide 	Glycineamide 
+Glycyl-glycine	Gly2
+HEPES-Na	HEPES-Na
+HEPES-K	HEPES-K
+Imidazole-Malate	Imi Mal
+MES	MES
+MES-K	MES-K
+MIB	MIB
+MMT	MMT
+MOPS	MOPS
+PCB	PCB
+PCPT	PCPT
+PIPES	PIPES
+Potassium MES	KMES
+Potassium phosphate	K Phos
+Potassium Sodium phosphate	K Na Phos
+Sodium phosphate	Na Phos
+Sodium phosphate citrate	Na Phos Cit
+Sodium Potassium phosphate	Na K Phos
+SPG	SPG
+Tacsimate	Tacsimate
+TAPS	TAPS
+TES	TES
+TRICINE	TRICINE
+TRIS-Cl	TRIS-Cl
+TRIS-Acetate	TRIS Acet
+TRIS-Maleate	TRIS Male
