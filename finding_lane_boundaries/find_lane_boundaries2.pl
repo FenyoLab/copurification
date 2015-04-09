@@ -2,7 +2,7 @@
  
 #    find_lane_boundaries2.pl - Finds lane boundaries in the images.
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -225,7 +225,7 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 	
 	my $start_x = $lane_x[$lane_i][1] >= 0 ? $cur_st_lane_x1 : $cur_st_lane_x2;
 	my $end_x = $lane_x[$lane_i][3] <= 0 ? $cur_end_lane_x1 : $cur_end_lane_x2;
-	my $line_n; my $line_nn; my $type='';
+	my $line_n; my $line_nn; my $type=''; my $max_intensity='';
 	while ($line=<IN>)
 	{
 		if($line_n=<IN_N>)
@@ -236,8 +236,9 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 				{
 					# we will only output the current lane that we are processing to the text file
 					my $window_size = ($end_x - $start_x) + 1;
+					$max_intensity = $3;
 					$type = $4;
-					print OUT qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$type\n!;
+					print OUT qq!# ImageMagick pixel enumeration: $window_size,$2,$max_intensity,$type\n!;
 					
 					$line_n=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/;
 					print OUT_N qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$4\n!;
@@ -256,13 +257,21 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 						if ($x<=$cur_st_lane_x1+$y/$y_max*($cur_st_lane_x2-$cur_st_lane_x1)) #we are in the cutout triangle (left side)
 						#{ print OUT qq!$x_,$y:(65535,    0,    0)  #FFFF00000000  red\n!; }
 						{
-							if ($type eq 'graya')
+							if($max_intensity eq '65535') 
 							{
-								print OUT qq!$x_,$y:(255,255,255,255)  #FFFFFF  graya(255,255,255,1)\n!;
+								print OUT qq!$x_,$y: (65535,65535,65535)  #FFFFFFFFFFFF  white\n!;
 							}
 							else
-							{
-								print OUT qq!$x_,$y:(65535,    65535,    65535)  #FFFFFFFFFFFF  white\n!;
+							{# $max_intensity eq '255'
+								if ($type eq 'graya')
+								{
+									print OUT qq!$x_,$y: (255,255,255,255)  #FFFFFF  graya(255,255,255,1)\n!;
+								}
+								else
+								{
+									print OUT qq!$x_,$y: (255,255,255)  #FFFFFF  gray(255,255,255)\n!;
+								}
+								
 							}
 						}
 						#{ ; }
@@ -271,16 +280,22 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 							if ($x>=$cur_end_lane_x1+$y/$y_max*($cur_end_lane_x2-$cur_end_lane_x1)) #we are in the cutout triangle (right side)
 							#{ print OUT qq!$x_,$y:(65535,    0,    0)  #FFFF00000000  red\n!; }
 							{
-								if ($type eq 'graya')
+								if($max_intensity eq '65535') 
 								{
-									print OUT qq!$x_,$y:(255,255,255,255)  #FFFFFF  graya(255,255,255,1)\n!;
+									print OUT qq!$x_,$y: (65535,65535,65535)  #FFFFFFFFFFFF  white\n!;
 								}
 								else
-								{
-									print OUT qq!$x_,$y:(65535,    65535,    65535)  #FFFFFFFFFFFF  white\n!;
+								{# $max_intensity eq '255'
+									if ($type eq 'graya')
+									{
+										print OUT qq!$x_,$y: (255,255,255,255)  #FFFFFF  graya(255,255,255,1)\n!;
+									}
+									else
+									{
+										print OUT qq!$x_,$y: (255,255,255)  #FFFFFF  gray(255,255,255)\n!;
+									}
+									
 								}
-								
-								
 							}
 							
 							#{ ; }
@@ -305,32 +320,38 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 	close(IN_NN);
 	close(OUT_NN);
 	
-	#rotate the lane:
-	my $i = int(($lane_x[$lane_i][1] + $lane_x[$lane_i][3]) / 2); #average the st/end i's to get i-value for rotation
-	my $rotate_angle = $im_rot_angles{$i};
-	
-	if($i != 0) 
+	my $ROTATE = 1;
+	if ($ROTATE)
 	{
-		#rotate
-		my $ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
-		print LOG "Performed ImageMagick rotate ($ret) for Lane $lane_i_display, angle = $rotate_angle.\n";
+		#rotate the lane:
+		my $i = int(($lane_x[$lane_i][1] + $lane_x[$lane_i][3]) / 2); #average the st/end i's to get i-value for rotation
+		my $rotate_angle = $im_rot_angles{$i};
 		
-		$ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.n.txt" 2>&1`;
-		print LOG "Performed ImageMagick rotate ($ret) for (norm) Lane $lane_i_display, angle = $rotate_angle.\n";
-		
-		$ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
-		print LOG "Performed ImageMagick rotate ($ret) for (norm2) Lane $lane_i_display, angle = $rotate_angle.\n";
-		
-		#trim/shave extra whitespace
-		$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
-		print LOG "Performed ImageMagick trim ($ret) for Lane $lane_i_display.\n";
-		
-		$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.n.txt" 2>&1`;
-		print LOG "Performed ImageMagick trim ($ret) for (norm) Lane $lane_i_display.\n";
-		
-		$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
-		print LOG "Performed ImageMagick trim ($ret) for (norm2) Lane $lane_i_display.\n";
+		if($i != 0) 
+		{
+			#rotate
+			my $ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
+			print LOG "Performed ImageMagick rotate ($ret) for Lane $lane_i_display, angle = $rotate_angle.\n";
+			
+			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.n.txt" 2>&1`;
+			print LOG "Performed ImageMagick rotate ($ret) for (norm) Lane $lane_i_display, angle = $rotate_angle.\n";
+			
+			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
+			print LOG "Performed ImageMagick rotate ($ret) for (norm2) Lane $lane_i_display, angle = $rotate_angle.\n";
+			
+			#trim/shave extra whitespace
+			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
+			print LOG "Performed ImageMagick trim ($ret) for Lane $lane_i_display.\n";
+			
+			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.n.txt" 2>&1`;
+			print LOG "Performed ImageMagick trim ($ret) for (norm) Lane $lane_i_display.\n";
+			
+			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
+			print LOG "Performed ImageMagick trim ($ret) for (norm2) Lane $lane_i_display.\n";
+		}
 	}
+	
+	
 	
 	#convert to png file
 	my $ret = `"$IMAGEMAGICK_DIR/mogrify" "-format" "png" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;

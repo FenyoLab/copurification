@@ -3,7 +3,7 @@
 #    process_experiment_gels.pl - this module is executed by copurification.pl,
 #    it calls the scripts that section the gels/find the bands, masses/quantification
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -69,7 +69,9 @@ eval
 	my $cur_gel_txt_file;
 	my $n_cur_gel_txt_file; my $nn_cur_gel_txt_file;
 	my $cur_gel_img_file_root;
-	
+	my $first_gel = 1;
+	my $alignment_gel_name;
+	my $alignment_gel_cal_lane;
 	foreach my $gel (@gels)
 	{
 		my $n = $gel -> get("File_Id");
@@ -112,6 +114,7 @@ eval
 		#imagemagick convert - convert to grayscale and resize
 		my $x_size = $lanes * $x_pixels_per_lane;
 		my $sys_ret = system(qq!"$IMAGEMAGICK_DIR/convert" "$cur_gel_img_file" -colorspace Gray -scale ${x_size}x${y_size}\! "$cur_gel_txt_file"!);
+		#my $sys_ret = system(qq!"$IMAGEMAGICK_DIR/convert" "$cur_gel_img_file" -colorspace Gray "$cur_gel_txt_file"!);
 		if($sys_ret != 0) #getting error here with png image - try running it manually....
 		{
 			$gel -> set('Error_Description' => "Error in processing gel image file. (convert (1) error)");
@@ -208,8 +211,20 @@ eval
 		close(OUT);
 		
 		#call find_lane_masses
-		system(qq!"../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt"!); #fix the input parameters in this program to match here...
-	
+		if ($first_gel)
+		{
+			system(qq!"../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt"!); #fix the input parameters in this program to match here...
+			$first_gel = 0;
+			$alignment_gel_name = $cur_gel_img_file_root;
+			$alignment_gel_cal_lane = $mass_cal_lanes[0] -> get("Lane_Order");
+			
+		}
+		else
+		{
+			system(qq!"../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt" "$alignment_gel_name" "$alignment_gel_cal_lane"!); #fix the input parameters in this program to match here...
+			
+		}
+		
 		#gel all lanes for this gel (in order 1 to max), add bands that were found by the program:
 		my @db_lane = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, { order_by => 'Lane_Order' });
 		my $lane_i = 1; my $missing_lanes = 0;

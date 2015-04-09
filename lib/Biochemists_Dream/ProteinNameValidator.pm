@@ -1,9 +1,9 @@
-#!c:/perl/bin/perl.exe 
+#!c:/perl/bin/perl.exe
 
 #    (Biochemists_Dream::ProteinNameValidator) ProteinNameValidator.pm - validates Protein Systematic Names
 #    online at www.ncbi.nlm.nih.gov & yeastmine.yeastgenome.org/yeastmine/service
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -57,6 +57,9 @@ our @EXPORT_OK = qw();
 
 # functions
 
+#NOTE: should change ncbi access to use fasta file as in below string, for protein NP_057174.1
+#http://www.ncbi.nlm.nih.gov/protein/NP_057174.1?report=fasta&log$=seqview&format=text
+
 sub validate
 {#
     my $db_name = $_[0];
@@ -77,6 +80,10 @@ sub validate
     {
         $ret = validate_genbank_protein($name, $common_name, $version, $species);
         if (!$ret) { $ret = validate_genbank_gene($name, $common_name, $version, $species); }
+    }
+    elsif($db_name eq 'MGI')
+    {
+        $ret = validate_mgi($name, $common_name, $species);
     }
     
     $_[3] = $common_name;
@@ -233,7 +240,37 @@ sub validate_sgd
     return 1;
 }
 
+sub validate_mgi
+{
+    my $name = $_[0];
+    my $species = $_[2];
+    my $service = get_service('http://www.mousemine.org/mousemine/service');
+    #use Webservice::InterMine 1.0405 'http://www.mousemine.org/mousemine';
 
+    my $query = $service->new_query; #(class => 'Gene');
+
+    $query->add_view("Gene.symbol","Gene.organism.name");
+    
+    $name = uc($name);
+    if ($name != /^MGI:/)
+    {
+        $name = 'MGI:' . $name;
+    }
+    
+    $query->add_constraint(
+        path  => 'Gene.primaryIdentifier',
+        op    => '=',
+        value => $name);
+    
+    my @rows = $query -> results_table;
+    if($#rows == 0 && uc($rows[0][1]) eq uc($species))
+    { 
+        $_[1] = $rows[0][0];
+    }
+    else { return 0; }
+    
+    return 1;
+}
 
 END { ; } # module clean-up code here (global destructor)
 

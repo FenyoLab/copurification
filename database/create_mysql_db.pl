@@ -3,7 +3,7 @@
 #    create_my_sql_db.pl - creates the MySQL database for copurification.org.
 #    reads from 4 text files which should be in the same directory as this file (these contain the Reagent values)
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -306,6 +306,7 @@ if($insert_values)
 	$result = $dbh -> do(qq!INSERT INTO Species (Name) VALUES ('Homo sapiens')!);
 	$result = $dbh -> do(qq!INSERT INTO Species (Name) VALUES ('Saccharomyces cerevisiae')!);
 	$result = $dbh -> do(qq!INSERT INTO Species (Name) VALUES ('Escherichia coli')!);
+	$result = $dbh -> do(qq!INSERT INTO Species (Name) VALUES ('Mus musculus')!);
 	
 	#Tag_Locations 
 	$result = $dbh -> do(qq!INSERT INTO Tag_Locations (Name) VALUES ('N-term')!);
@@ -313,6 +314,7 @@ if($insert_values)
 	$result = $dbh -> do(qq!INSERT INTO Tag_Locations (Name) VALUES ('internal')!);
 	
 	#Protein_DB
+	$result = $dbh -> do(qq!INSERT INTO Protein_DB (Name, Species) VALUES ('MGI', 'Mus musculus')!);
 	$result = $dbh -> do(qq!INSERT INTO Protein_DB (Name, Species) VALUES ('SGD', 'Saccharomyces cerevisiae')!);
 	$result = $dbh -> do(qq!INSERT INTO Protein_DB (Name, Species, Priority) VALUES ('RefSeq', 'Homo sapiens', 1)!);
 	$result = $dbh -> do(qq!INSERT INTO Protein_DB (Name, Species, Priority) VALUES ('GenBank', 'Homo sapiens', 2)!);

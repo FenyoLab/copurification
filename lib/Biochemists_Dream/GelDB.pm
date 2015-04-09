@@ -2,7 +2,7 @@
 
 #    (Biochemists_Dream::GelDB) GelDB.pm - provides class interface to the database - uses Class::DBI
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by

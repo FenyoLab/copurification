@@ -3,7 +3,7 @@
 #    find_lane_masses.pl - Finds the masses/amounts of the bands in the lanes given a gel image file name 
 #    uses mass/amount calibration data from the input calibration file
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -60,9 +60,6 @@ use Biochemists_Dream::Common;
 use File::Copy;
 sub numerically { $a <=> $b; }
 sub numericallydesc { $b <=> $a; }
-
-my $MIN_SUM_PERCENT = 0.01;
-
 #open settings file and read in settings (imagemagick directory):
 my $err = "";
 if($err = read_settings()) 
@@ -81,17 +78,36 @@ if($err = read_settings())
 #     the amounts (tab-separated)
 #     the mass to look for the amount cal band (tab-separated) - if mass is 0, then looks for largest band
 
+#peak finding parameters
+my $MIN_SUM_PERCENT = 0.05;
+my $MIN_SUM_RAW = 0; #50;
+my $CUTOFF_SUM_PERCENT = 0.01;
+my $CUTOFF_RAW = 0; #7;
+
+my $END_BAND_PERCENT = 0.25;
+my $MIN_BAND_SEP_PIXELS =  1;
+
+my $MAX_PEAKS = 1000; #basically, not limiting number of peaks
+			
 my $gel_directory;
 my $calibration_filename;
 my $lanes;
 my $gel_image_filename_root;
 
-if($#ARGV != 3) { exit(0); }
-
 $gel_directory = "$ARGV[0]";
 $gel_image_filename_root = "$ARGV[1]";
 $lanes = "$ARGV[2]";
 $calibration_filename = "$ARGV[3]";
+
+my $alignment_gel;
+my $cal_lane_alignment_gel;
+my $do_alignment = 0;
+if ($#ARGV > 3)
+{
+	$do_alignment = 1;
+	$alignment_gel = $ARGV[4];
+	$cal_lane_alignment_gel = $ARGV[5];
+}
 
 #read in the calibration information:
 open(IN, "$gel_directory/$calibration_filename") || die "Error: Could not open calibration text file: '$gel_directory/$calibration_filename'.\n"; 
@@ -161,12 +177,17 @@ print "\n";
 my @calibration_lane_sorted_ladders;
 for(my $i = 0; $i < $num_calibration_lanes; $i++)
 {
-	@{$calibration_lane_sorted_ladders[$i]} = sort numerically @{$calibration_lane_ladders[$i]};
+	@{$calibration_lane_sorted_ladders[$i]} = sort numericallydesc @{$calibration_lane_ladders[$i]};
 }
 
 my @lane_peaks; #2 d array, each pos. contains the set of "peaks" found for that lane
+my @lane_peaks_info;
 my @cal_lane_peaks_sorted; #2 d array, each pos. contains the set of sorted "peaks" found for the calibration lane (lane number is the lane number in the 
 			   #corresponding position in the @calibration_lane_nums array
+			   
+#set peak finding parameters using 1st ladder lane
+get_lane_peaks($calibration_lane_nums[0]);
+set_peak_params_using_ladder(0);
 
 for(my $i = 1; $i <= $lanes; $i++)
 {
@@ -229,6 +250,35 @@ for(my $i = 1; $i <= $lanes; $i++)
 	
 	#delete all intermediate files?!
 }
+
+if ($do_alignment)
+{
+	my $pixel_offset = calculate_lane_alignment_pixels($alignment_gel, $cal_lane_alignment_gel);
+	$pixel_offset = int($pixel_offset);
+	
+	if ($pixel_offset != 0)
+	{
+		#output new lane images with pixels added/subtracted
+		for(my $i=1; $i <= $lanes; $i++)
+		{
+			if ($pixel_offset > 0)
+			{
+				system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$i.n.png" -background white -splice 0x$pixel_offset "$gel_directory/$gel_image_filename_root.lane.$i.n.a.png"!);
+			}
+			else
+			{
+				system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$i.n.png" -chop 0x$pixel_offset "$gel_directory/$gel_image_filename_root.lane.$i.n.a.png"!);
+		
+			}
+			
+		}
+	}
+	
+	
+}
+
+
+
 
 ########### subroutines #####################################################################################################################
 
@@ -303,11 +353,57 @@ sub calculate_amount_calibration_data
 	}	
 }
 
+sub set_peak_params_using_ladder
+{#try this with gel1 - see what these values come out to be - we know what the correct values should be...
+	my $lane_num = $calibration_lane_nums[0];
+	
+	#get biggest peak - use it to set peak finding params
+	$MIN_SUM_RAW = $lane_peaks_info[$lane_num][0][2] / 5; 
+	$CUTOFF_RAW = $lane_peaks_info[$lane_num][0][1] / 12; #16;
+	
+	#double check CUTOFF_RAW AND readjust if it will eliminate a ladder band
+	my $i_stop = 0;
+	my $num_ladder_bands = $#{$calibration_lane_ladders[0]}+1;
+	my $i;
+	for($i = 0; $i <= $#{$lane_peaks_info[$lane_num]}; $i++)
+	{
+		if ($lane_peaks_info[$lane_num][$i][1] < $CUTOFF_RAW)
+		{
+			$i_stop = 1;
+			last;
+		}
+	}
+	my $corrected = 0;
+	if ($i_stop)
+	{
+		if ($i < $num_ladder_bands)
+		{
+			my $check_index = ($num_ladder_bands-$i) + ($i-1);
+			while ($check_index > $#{$lane_peaks_info[$lane_num]}) { $check_index--; }
+			if ($lane_peaks_info[$lane_num][$check_index][1] < $CUTOFF_RAW)
+			{
+				$CUTOFF_RAW = $lane_peaks_info[$lane_num][$check_index][1] * .75;
+				$corrected = 1;
+			}	
+		}
+	}
+	
+	if(open(OUT, ">$gel_directory/$gel_image_filename_root.peak_params.txt"))
+	{
+		print OUT "MIN_SUM_RAW = $MIN_SUM_RAW\n\nCUTOFF_RAW = $CUTOFF_RAW\n\nCUTOFF_RAW corrected = $corrected\n";
+		close(OUT);
+	}
+}
+
 sub get_lane_peaks
 {#get the lane peaks for the lane number given in the argument to the function, and stores it in a file
 
 	my $lane_num = shift;
-
+	
+	#clear out lane_peaks
+	$lane_peaks[$lane_num] = ();
+	$lane_peaks_info[$lane_num] = ();
+	
 	#open the lane file and extract the middle 1/2 of the lane (cut off 1/4 on both sides)
 	
 	if(!open(IN, "$gel_directory/$gel_image_filename_root.lane.$lane_num.txt"))
@@ -365,7 +461,7 @@ sub get_lane_peaks
 		#read in the intensity information - smooth the data
 		while($line=<IN>)
 		{
-			if ($line=~/^0\,([0-9]+)\:\s+\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/)
+			if ($line=~/^0\,([0-9]+)\:\s*\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/)
 			{
 				$k=$1;
 				$y[$k]=$max_intensity-($2+$3+$4)/3; #average rgb values and subtract from max to reverse so black is highest (not white)
@@ -373,11 +469,15 @@ sub get_lane_peaks
 				#divide lane into 20 bins and find minimum in each part 
 				my $k_=20*$k/$height;
 				$k_=~s/\..*$//;
-				if ($y_min[$k_]>$y[$k] or $y_min[$k_]!~/\w/) { $y_min[$k_]=$y[$k]; }
+				if ($y_min[$k_]!~/\w/ or ($y[$k]<$y_min[$k_] and $y[$k] != 0)) { $y_min[$k_]=$y[$k]; } #added and $y[$k] != 0 ***
+			}
+			else
+			{
+				print "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
 			}
 		}
 		
-		my @y_=(); #use y_min to fill y_
+		my @y_=(); #adjust each y_min - use y_min[k_], y_min[k_-1], y_min[k_+1] to produce y_
 		for($k=0;$k<$height;$k++)
 		{
 			#fill @y_
@@ -401,7 +501,7 @@ sub get_lane_peaks
 		
 		#average every 5 points
 		$y_[0]=($y_[0]+$y_[1]+$y_[2])/3;
-		$y_[1]=($y_[0]+$y_[1]+$y_[2]+$y_[2])/4;
+		$y_[1]=($y_[0]+$y_[1]+$y_[2]+$y_[3])/4;
 		for($k=2;$k<$height-2;$k++)
 		{
 			$y_[$k]=($y_[$k-2]+$y_[$k-1]+$y_[$k]+$y_[$k+1]+$y_[$k+2])/5;
@@ -426,7 +526,7 @@ sub get_lane_peaks
 		# sum intensity values of whole lane, over each y-value
 		if(!open(IN_SUM, "$gel_directory/$gel_image_filename_root.lane.$lane_num.txt"))
 		{
-			print "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane-collapse.$lane_num.txt'.\n"; 
+			print "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
 			return 0;
 		}
 		my @gel;
@@ -439,10 +539,14 @@ sub get_lane_peaks
 			#read in the intensity information 
 			while($line=<IN_SUM>)
 			{
-				if($line=~/^([0-9]+),([0-9]+):\s\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)\)/)
+				if($line=~/^([0-9]+),([0-9]+):\s*\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)\)/)
 				{#read in the rgb data for each lane in the gel into the 2d array @gel
 					
 					$gel[$1][$2] = $max_intensity-($3+$4+$5)/3;
+				}
+				else
+				{
+					print "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
 				}
 			}
 		}
@@ -479,7 +583,7 @@ sub get_lane_peaks
 				{ 
 					$sum[$k]+=$y__[$l]; 
 					$cen[$k]+=$l*$y__[$l];
-					if ($max[$k]<$y__[$l]) { $max[$k]=$y__[$l]; }
+					if ($max[$k]!~/\w/ or $max[$k]<$y__[$l]) { $max[$k]=$y__[$l]; }
 				}
 				$to_sort[$k]=qq!$sum[$k]#$k!;
 			}
@@ -487,36 +591,106 @@ sub get_lane_peaks
 			my @done=();
 			my $peaks_count = 0;
 			
-			#no output when sum reaches less than 1% of highest sum
+			if (open(OUT_SUMDATA,">$gel_directory/$gel_image_filename_root.lane-sum_data.$lane_num.txt"))
+			{
+				for(my $k=1;$k<$height-1;$k++)
+				{
+					print OUT_SUMDATA "$to_sort[$k]\n";
+				}
+				print OUT_SUMDATA "\n\n\n\n\n";
+				for(my $k=1;$k<$height-1;$k++)
+				{
+					print OUT_SUMDATA "$sorted[$k]\n";
+				}
+				
+				close(OUT_SUMDATA);		
+			}
+			my $cutoff_sum = $CUTOFF_SUM_PERCENT * $sorted[0];
 			my $min_sum = $MIN_SUM_PERCENT * $sorted[0];
-			my $END_BAND_PERCENT = 0.40;
-			for(my $l=0,my $ll=0;$l<$height and $ll<20;$l++)
+			for(my $l=0,my $ll=0;$l<=$#sorted and $ll<$MAX_PEAKS;$l++)
 			{
 				if ($sorted[$l]=~/^([^#]+)#([^#]+)$/)
 				{ 
 					#no output when sum is less than 1% of highest sum
 					my $sum = $1;
-					if($sum < $min_sum) { next; }
-					
 					my $k=$2;
+					
 					if ($done[$k]!~/\w/)
 					{
-						my $k_min; my $k_max;
-						for(my $m=$k;$m>=0 and $y__[$m]>$END_BAND_PERCENT*$y__[$k];$m--) { $k_min=$m; }
-						for(my $m=$k;$m<$height and $y__[$m]>$END_BAND_PERCENT*$y__[$k];$m++) { $k_max=$m; }
-						my $done=0;
-						for(my $m=$k-1*($k-$k_min);$m<=$k+1*($k_max-$k);$m++) { if ($done[$m]=~/\w/) { $done=1; } }
-						if ($done==0)
+						
+						#NEW PART
+						my $new_k1 = -1; 
+						for(my $m=$k-1;$m>1 && $y__[$m+1]<$y__[$m];$m--) { $new_k1=$m; }
+						my $new_k2 = -1;
+						for(my $m=$k+1;$m<($height-2) && $y__[$m-1]<$y__[$m];$m++) { $new_k2=$m; }
+						my $new_k = $new_k1 > $new_k2 ? $new_k1 : $new_k2;
+						if ($new_k != -1)
 						{
-							my $amount_sum; #
-							for(my $m=$k_min;$m<=$k_max;$m++) { $amount_sum += $y_lane_sum[$m]; } #
-							for(my $m=$k-2*($k-$k_min);$m<=$k+2*($k_max-$k);$m++) { if ($m>=0) { $done[$m]=1; } }
-							$cen[$k]/=$sum[$k];
-							$lane_peaks[$lane_num][$peaks_count] = $cen[$k];
-							#print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$sum[$k]\t$max[$k]\n!;
-							print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$amount_sum\t$max[$k]\n!; #
-							$peaks_count++;
-							$ll++;
+							$k = $new_k;
+							$sum = $sum[$k];
+						}
+						
+						my $k_min = $k; my $k_max = $k;
+						if($sum >= $cutoff_sum && $y__[$k] >= $CUTOFF_RAW)
+						{
+							if($sum < $min_sum || $sum < $MIN_SUM_RAW) #{ last; }
+							{#if there is a large enough diff between this pixel and the 2 around it, it will still be distinguishable
+							 #even at low intensity
+								my $go_next = 0;
+								
+								#check 3 pixels
+								my $k_limit_lower = $y__[0] == 0 ? 2 : 1;
+								my $k_limit_upper = $y__[$height-1] == 0 ? $height-3 : $height-2;
+								if ( ($k<=$k_limit_lower || ($y__[$k]-$y__[$k-1] > .2*$y__[$k])) || ($k>=$k_limit_upper || ($y__[$k]-$y__[$k+1] > .2*$y__[$k])) )
+								{
+									if ($k<=$k_limit_lower && ($y__[$k]-$y__[$k+1] <= .2*$y__[$k])) { $go_next = 1; }
+									if ($k>=$k_limit_upper && ($y__[$k]-$y__[$k-1] <= .2*$y__[$k])) { $go_next = 1; }
+								}
+								else { $go_next = 1; }
+								
+								#check 5 pixels
+								if ($go_next)
+								{
+									if ( ($k<=$k_limit_lower+1 || ($y__[$k]-$y__[$k-2] > .5*$y__[$k])) || ($k>=$k_limit_upper-1 || ($y__[$k]-$y__[$k+2] > .5*$y__[$k])) )
+									{# or maybe .6 ?
+										if ($k<=$k_limit_lower+1 && ($y__[$k]-$y__[$k+2] <= .5*$y__[$k])) { next; }
+										if ($k>=$k_limit_upper-1 && ($y__[$k]-$y__[$k-2] <= .5*$y__[$k])) { next; }
+									}
+									else { next; }
+								}
+								
+								
+							}
+							#lower threshold and take 30% of $k +/- 2 ?
+							
+							if ($done[$k]!~/\w/)
+							{
+							## END NEW PART	  #$m>=0
+								
+								for(my $m=$k;$m>=0 && ($y__[$m]>$END_BAND_PERCENT*$y__[$k] && ($m == 0 || $y__[$m]>=$y__[$m-1]));$m--) { $k_min=$m; }
+								for(my $m=$k;$m<=($height-1) && ($y__[$m]>$END_BAND_PERCENT*$y__[$k] && ($m == ($height-1) || $y__[$m]>=$y__[$m+1]));$m++) { $k_max=$m; }
+									  #$m<$height						     
+								
+								if (($k_max - $k_min)+1 >= 3)
+								{#must be atleast 3 pixels wide for a band
+									my $done=0;
+									for(my $m=$k_min;$m<=$k_max;$m++) { if ($done[$m]=~/\w/) { $done=1; } }
+									if ($done==0)
+									{
+										my $amount_sum; #
+										for(my $m=$k_min;$m<=$k_max;$m++) { $amount_sum += $y_lane_sum[$m]; } #
+										#for(my $m=$k-2*($k-$k_min);$m<=$k+2*($k_max-$k);$m++) { if ($m>=0) { $done[$m]=1; } }
+										for(my $m=$k_min-$MIN_BAND_SEP_PIXELS;$m<=$k_max+$MIN_BAND_SEP_PIXELS;$m++) { if ($m>=0) { $done[$m]=1; } }
+										$cen[$k]/=$sum[$k];
+										$lane_peaks[$lane_num][$peaks_count] = $cen[$k];
+										$lane_peaks_info[$lane_num][$peaks_count] = [$k, $y__[$k], $sum[$k]];
+										#print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$sum[$k]\t$max[$k]\n!;
+										print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$amount_sum\t$max[$k]\n!; #
+										$peaks_count++;
+										$ll++;
+									}
+								}
+							}
 						}
 					}
 				}
@@ -535,32 +709,25 @@ sub calc_mass_calibration_data
 	
 	my @ladder_sorted = @{$calibration_lane_sorted_ladders[$cal_array_pos]};
 	
-	#open centroid data file for reading 
-	if (open(IN,"$gel_directory/$gel_image_filename_root.lane-middle_cen.$lane_num.txt"))
+	#match up ladder masses to peaks
+	my @calpeaks;
+	for(my $i = 0; $i <= $#ladder_sorted && $i <= $#{$lane_peaks[$lane_num]}; $i++) { $calpeaks[$i] = $lane_peaks[$lane_num][$i]; }
+	my @calpeaks_sorted = sort numerically @calpeaks;
+	for(my $i = 0; $i < scalar(@calpeaks_sorted); $i++) { $cal_lane_peaks_sorted[$cal_array_pos][$i] = $calpeaks_sorted[$i]; }
+	my $peaks_count = $#{$cal_lane_peaks_sorted[$cal_array_pos]}+1;
+	
+	#print ladder masses/peaks to file
+	if (open(OUT,">$gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt"))
 	{
-		my $line=<IN>;
-		
-		#match up ladder masses to peaks
-		
-		my @calpeaks;
-		for(my $i = 0; $i <= $#ladder_sorted; $i++) { $calpeaks[$i] = $lane_peaks[$lane_num][$i]; }
-		my @calpeaks_sorted = sort numericallydesc @calpeaks; 
-		for(my $i = 0; $i < scalar(@calpeaks_sorted); $i++) { $cal_lane_peaks_sorted[$cal_array_pos][$i] = $calpeaks_sorted[$i]; }
-		my $peaks_count = $#{$cal_lane_peaks_sorted[$cal_array_pos]}+1;
-		
-		#print ladder masses/peaks to file
-		if (open(OUT,">$gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt"))
+		print OUT qq!mass\tpixel\n!;
+		for(my $l=0;$l<$peaks_count;$l++)
 		{
-			print OUT qq!mass\tpixel\n!;
-			for(my $l=0;$l<$peaks_count;$l++)
-			{
-				print OUT qq!$ladder_sorted[$l]\t$cal_lane_peaks_sorted[$cal_array_pos][$l]\n!;
-			}
-			close(OUT);
+			print OUT qq!$ladder_sorted[$l]\t$cal_lane_peaks_sorted[$cal_array_pos][$l]\n!;
 		}
-		else { print qq!Error opening file $gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt.\n!; }
+		close(OUT);
 	}
-	else { print qq!Error reading file $gel_directory/$gel_image_filename_root.lane-middle_cen.$lane_num.txt.\n!; }
+	else { print qq!Error opening file $gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt.\n!; }
+	
 }
 			  
 sub calibrate_amount
@@ -636,32 +803,31 @@ sub calibrate_mass
 						my $mass=0;
 						my $l;
 						
-						#cal_lane_peaks_sorted - sorted largest to smallest peak (pixel)
 						#start at smallest pixel, stop when cen <= current peak (l is the index of smallest peak bigger than current cen
-						for($l=$calpeaks_count-1;$l>=0 and $cen>$cal_lane_peaks_sorted[$i][$l];$l--) { ; }
+						for($l=0;$l<$calpeaks_count and $cen>$cal_lane_peaks_sorted[$i][$l];$l++) { ; }
 						
-						if ($cen<$cal_lane_peaks_sorted[$i][$calpeaks_count-1])
+						if ($cen<$cal_lane_peaks_sorted[$i][0])
 						{#if current cen < smallest cal lane peak
-							$mass = $ladder_sorted[$calpeaks_count-1] + 
-								($cen-$cal_lane_peaks_sorted[$i][$calpeaks_count-1]) * 
-									($ladder_sorted[$calpeaks_count-1-1]-$ladder_sorted[$calpeaks_count-1]) / 
-										($cal_lane_peaks_sorted[$i][$calpeaks_count-1-1]-$cal_lane_peaks_sorted[$i][$calpeaks_count-1]);
+							$mass = $ladder_sorted[0] +
+								($cal_lane_peaks_sorted[$i][0]-$cen) * 
+									($ladder_sorted[0]-$ladder_sorted[1]) / 
+										($cal_lane_peaks_sorted[$i][1]-$cal_lane_peaks_sorted[$i][0]);
 						}
 						else
 						{
-							if ($cen>$cal_lane_peaks_sorted[$i][0])
+							if ($cen>$cal_lane_peaks_sorted[$i][$calpeaks_count-1])
 							{#if current cen > biggest cal lane peak
-								$mass = $ladder_sorted[0] + 
-									($cen-$cal_lane_peaks_sorted[$i][0]) * 
-										($ladder_sorted[1]-$ladder_sorted[0]) / 
-											($cal_lane_peaks_sorted[$i][1]-$cal_lane_peaks_sorted[$i][0]);
+								$mass = $ladder_sorted[$calpeaks_count-1] -
+									($cen-$cal_lane_peaks_sorted[$i][$calpeaks_count-1]) * 
+										($ladder_sorted[$calpeaks_count-2]-$ladder_sorted[$calpeaks_count-1]) / 
+											($cal_lane_peaks_sorted[$i][$calpeaks_count-1]-$cal_lane_peaks_sorted[$i][$calpeaks_count-2]);
 							}
 							else
-							{#current cen between biggest and smallest, its between $l+1 and $l 
+							{#current cen between biggest and smallest, its between $l-1 and $l 
 								$mass = $ladder_sorted[$l] + 
-									($cen-$cal_lane_peaks_sorted[$i][$l]) * # (-)
-										($ladder_sorted[$l+1]-$ladder_sorted[$l]) / #difference in surronding ladder masses (corresponding to cal lane peaks)
-											($cal_lane_peaks_sorted[$i][$l+1]-$cal_lane_peaks_sorted[$i][$l]); #difference in surrounding cal lane peaks (-)
+									($cal_lane_peaks_sorted[$i][$l]-$cen) * 
+										($ladder_sorted[$l-1]-$ladder_sorted[$l]) / #difference in surronding ladder masses (corresponding to cal lane peaks)
+											($cal_lane_peaks_sorted[$i][$l]-$cal_lane_peaks_sorted[$i][$l-1]); #difference in surrounding cal lane peaks (-)
 							}
 						}
 						print OUT qq!$mass\t$line!;
@@ -818,6 +984,45 @@ sub average_calibrated_mass
 	else { print qq!Error opening file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal.$lane_num.txt.\n!; }	
 }
 
+sub calculate_lane_alignment_pixels
+{
+	my $gel_file_name = shift;
+	my $ladder_lane_num = shift;
+	
+	#get ladder list for alignment gel:
+	if (open(IN,"$gel_directory/$gel_file_name.lane-mass-cal.$ladder_lane_num.txt"))
+	{
+		my $line=<IN>;
+		while ($line=<IN>) 
+		{
+			if ($line=~/^([^\t]+)\t([^\t]+)/)
+			{
+				my $mass = $1;
+				my $pixel = $2;
+				
+				for(my $i=0; $i<=$#{$cal_lane_peaks_sorted[0]};$i++)
+				{
+					my $cur_pixel = $cal_lane_peaks_sorted[0][$i];
+					my $cur_mass = $calibration_lane_sorted_ladders[0][$i];
+					if (abs($mass-$cur_mass)<1)
+					{
+						#found matching ladder bands, look at pixel difference
+						my $diff = $pixel-$cur_pixel; #this is what we add/subtract to align this gel
+						if (open(OUT,">>$gel_directory/alignment.txt"))
+						{
+							print OUT "$gel_image_filename_root\t$diff\n";
+						}
+						close(OUT);
+						close(IN);
+						return $diff;
+					}
+				}
+			}
+		}
+		close(IN);
+	}
+	return 0;
+}
 ########################
 
 sub std_dev

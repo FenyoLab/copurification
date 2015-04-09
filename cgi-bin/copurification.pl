@@ -1,8 +1,7 @@
 #!c:/perl/bin/perl.exe
-
 #    copurification.pl - this module handles the CGI for copurification.org and executes queries to the database for the Gel Search functions
 #
-#    Copyright (C) 2014  Sarah Keegan
+#    Copyright (C) 2015  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -26,7 +25,7 @@ use CGI ':standard';
 use Proc::Background;
 use Biochemists_Dream::Common;
 use Biochemists_Dream::GelDataFileReader;
-use Net::SMTP;
+#use Net::SMTP;
 
 #my $DEVELOPER_VERSION = 1;
 my $DEVELOPER_VERSION = 0;
@@ -41,9 +40,15 @@ my $g_frame;
 my $g_header;
 
 my $MAX_DISPLAY_LANES = 50;
-
+my $MIN_GROUP_RATIO = 0; #.94;
+my $SHOW_LADDER_LANES_IN_GROUP = 0;
+my $PERFORM_GROUPING = 0;
+	
 eval #for exception handling
 {
+	#redirect stderr to a log file instead of letting it go to the Apache log file
+	*OLD_STDERR = *STDERR;
+	
 	$g_header = 0; #set to true when display_title_header function is called - used in error page, to know whether to display header first or if it was already shown before exception thrown
 	$g_user_login = 0;
 	$g_the_user = undef;
@@ -63,8 +68,17 @@ eval #for exception handling
 		exit(0);
 	}
 
-	if($DEVELOPER_VERSION) { open(DEVEL_OUT, ">>$BASE_DIR/$DATA_DIR/$DEVELOPER_LOGFILE"); }
-	if($DEVELOPER_VERSION) { print DEVEL_OUT "Opened developer log file...\n"; }
+	if($DEVELOPER_VERSION)
+	{
+		open(DEVEL_OUT, ">>$BASE_DIR/$DATA_DIR/$DEVELOPER_LOGFILE");
+		*STDERR = *DEVEL_OUT;
+		
+		select(DEVEL_OUT);
+		$|++; # autoflush DEVEL_OUT
+		select(STDOUT);
+	}
+	#if($DEVELOPER_VERSION) { print DEVEL_OUT "Opened developer log file...\n"; }
+	else { open(STDERR, "NUL"); }    #*STDERR = 'NUL'; }
 
 	if(!param())
 	{#no posted data
@@ -378,6 +392,161 @@ eval #for exception handling
 		elsif($action eq "OpenPublicView")
 		{
 			display_frame2p('PUBLICVIEW SEARCH');
+
+		}
+		elsif($action eq "LaneGrouping")
+		{
+			#get the gel id's for the analysis, or use all gels in the experiment?
+			#my @ids = param('gels_public');
+			my $exp_id = param('experiment_id');
+			if(1) # (!(-e "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
+			{
+				my $exp = Biochemists_Dream::Experiment -> retrieve($exp_id);
+				my $exp_name = $exp -> Name;
+				
+				#get gels, we will need the gel file name
+				my @gels = Biochemists_Dream::Gel -> search(Experiment_Id => $exp_id);
+				my %gel_files;
+				foreach my $gel (@gels)
+				{
+					my $gel_id = $gel -> Id;
+					my $file_id = $gel -> File_Id;
+					$gel_files{$gel_id} = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/gel$file_id";
+				}
+				
+				#gel all lanes in this experiment and sort by captured protein id
+				my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
+					qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Experiment_Id = $exp_id) ORDER BY Captured_Protein_Id } );
+				my %lanes_to_group;
+				my %lane_conditions;
+				foreach my $lane (@lanes)
+				{#organize lanes by cap protein id
+					#my $lane_id = $lane -> Id;
+					my $cap_protein_id = $lane -> Captured_Protein_Id;
+					my $gel_id = $lane -> Gel_Id;
+					my $lane_num = $lane -> Lane_Order;
+					if ($cap_protein_id)
+					{#skip calibration lanes (cap protein id == null)
+						push @{$lanes_to_group{"$cap_protein_id"}{"$gel_id"}}, "$lane_num";
+					}
+					else
+					{
+						if ($SHOW_LADDER_LANES_IN_GROUP)
+						{
+							push @{$lanes_to_group{"-1"}{"$gel_id"}}, "$lane_num";
+						}
+						
+					}
+					
+					#organize/store the conditions for this lane, so that we may show it in the html created below
+					my @lane_reagents = $lane -> lane_reagents;
+					
+					#my @lane_reagents = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql( qq{ Lane_Id = $lane_id } );
+					foreach my $lane_reagent (@lane_reagents)
+					{
+						my $amount = $lane_reagent -> Amount;
+						my $units = $lane_reagent -> Amount_Units;
+						my $reagent = $lane_reagent -> Reagent_Id;
+						my $name = $reagent -> Short_Name;
+						my $type = $reagent -> Reagent_Type;
+						$gel_files{$gel_id} =~ /(gel\d+)$/;
+						push @{$lane_conditions{$1}{"$lane_num"}{"$type"}}, "$amount $units $name";
+					}
+					
+				}
+				if ($SHOW_LADDER_LANES_IN_GROUP)
+				{
+					foreach my $cap_protein_id (keys %lanes_to_group)
+					{
+						if ($cap_protein_id ne "-1")
+						{
+							#add ladder lanes in with this set
+							foreach my $gel_id (keys %{$lanes_to_group{"-1"}})
+							{
+								foreach my $lane_num (@{$lanes_to_group{"-1"}{$gel_id}})
+								{
+									push @{$lanes_to_group{"$cap_protein_id"}{"$gel_id"}}, "$lane_num";
+								}
+							}
+							last;
+						}
+						
+					}
+				}
+				
+				my $error_string = "";
+				#run lane grouping for each cap protein id
+				foreach my $cap_protein_id (keys %lanes_to_group)
+				{
+					if ($cap_protein_id eq "-1") { next; }
+					
+					my $lanes_to_run = "";
+					foreach my $gel_id (keys %{$lanes_to_group{$cap_protein_id}})
+					{
+						$lanes_to_run .= ('"' . $gel_files{$gel_id} . '" ');
+						my $lanes = join(' ', @{$lanes_to_group{$cap_protein_id}{$gel_id}});
+						$lanes_to_run .= ( '"' . $lanes . '" ');
+					}
+					
+					my $cmd_out = `"../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run`;	
+					if ( $? == -1 )
+					{
+					    $error_string = qq?ERROR: command failed (calculate_lane_scores.pl): $!\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
+					}
+					elsif($? >> 8 != 0) # exit value not 0, indicates error...
+					{
+					    $error_string = sprintf("ERROR: command (calculate_lane_scores.pl) exited with value %d\n", $? >> 8);
+					    $error_string .= qq?$cmd_out\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
+					}
+				}
+				if(open(OUT, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
+				{
+					if ($error_string)
+					{
+						print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
+						print OUT "<p>Error: <pre>$error_string</pre></p>";
+						print OUT "</BODY></HTML>";
+						close(OUT);
+					}
+					else
+					{
+						print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
+						print OUT "<h1>Lane Clustering for Experiment '$exp_name'</h1>";
+						#get results txt files and create image/html
+						foreach my $cap_protein_id (keys %lanes_to_group)
+						{
+							if ($cap_protein_id eq "-1") { next; }
+							print OUT "<H2>Captured Protein: ";
+							my $protein = Biochemists_Dream::Protein_DB_Entry -> retrieve($cap_protein_id);
+							print OUT $protein -> Common_Name;
+							print OUT " (";
+							print OUT $protein -> Systematic_Name;
+							print OUT ")</H2>";
+							
+							my $html = create_lane_grouping_html($exp_id, "$cap_protein_id.lane_scores.txt", \%lane_conditions);
+							print OUT $html;
+							
+						}
+						print OUT "</BODY></HTML>";
+						close(OUT);
+					}
+				}
+				else
+				{
+					;
+				}
+			}
+			
+			#load html from file and return it
+			print header();
+			if(open(IN, "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
+			{	
+				while(<IN>) { print; }
+			}
+			else
+			{
+				;
+			}
 
 		}
 		elsif($action eq "Login")
@@ -1095,20 +1264,29 @@ eval #for exception handling
 					#add an experiment with the given name, description, project_id to the database
 					$new_experiment = Biochemists_Dream::Experiment -> insert({Name => $name, Description => $desc, Species => $species, Project_Id => $project_id, Experiment_Procedure_File => $proc_file, Gel_Details_File => $gel_file});
 					$id = $new_experiment -> get("Id");
-
+					
+					if($DEVELOPER_VERSION) { print DEVEL_OUT "Experiment created, id = $id\n"; }
+					
 					my $lw_fh = upload('experiment_data_file'); # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
 					my $remote_file = param('experiment_data_file');
 					if (defined $lw_fh)
 					{
 						#upload the data file, create a directory for this experiment, and save the file there
-
+						
+						
 						$experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$id"; #the dir will be named w/ the primary key id
 						if(mkdir($experiment_dir))
 						{
 							my $local_fname = "$experiment_dir/$EXP_DATA_FILE_NAME_ROOT"; #param('experiment_data_file');
 							my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
 							my $ext;
+							
+							if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload file: $remote_file, $io_fh, $local_fname, $ext.\n"; }
+							
 							$err_str = upload_file($remote_file, $io_fh, $local_fname, $ext);
+							
+							if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
+							
 							close($io_fh);
 							if($err_str) { $err_str .= " (file upload)"; }
 							if (lc $ext ne 'txt')
@@ -1465,7 +1643,7 @@ if ($@)
 	elsif($g_frame eq '2') { display_private_error_page("$@"); }
 	else { display_public_error_page("$@"); }
 }
-
+*STDERR = *OLD_STDERR;
 if($DEVELOPER_VERSION) { close(DEVEL_OUT); }
 
 ######################################################################################
@@ -1499,7 +1677,7 @@ sub display_frameset
 		<HEAD>
 		<TITLE>copurification.org</TITLE>
 		</HEAD>
-		<frameset cols="20%,60%,20%" border="1" framespacing="0">
+		<frameset cols="10%,80%,10%" border="1" framespacing="0">
 		<frame src="about:blank" />
 			<frameset rows="105,*,55">
 			<frame src="../copurification-cgi/copurification.pl?frame=1p" name="frame1p" noresize scrolling="no">
@@ -1521,7 +1699,7 @@ HTMLPAGE
 		<HEAD>
 		<TITLE>copurification.org</TITLE>
 		</HEAD>
-		<frameset cols="15%,70%,15%" border="1">
+		<frameset cols="10%,80%,10%" border="1">
 		<frame src="about:blank" />
 			<frameset rows="105,*,55">
 			<frame src="../copurification-cgi/copurification.pl?frame=3" name="frame3" noresize  scrolling="no">
@@ -3503,7 +3681,10 @@ sub display_experiment_results
 		print br();
 		print '<table><tr><td>';
 		if($need_button) #-disabled=>'true'
-		{ print submit(-name=>'submit', -value=>'Make Public', -disabled=>'true'), '&nbsp;&nbsp;(selected gels)', '&nbsp;&nbsp;&nbsp;|&nbsp; '; }
+		#{ print submit(-name=>'submit', -value=>'Make Public', -disabled=>'true'), '&nbsp;&nbsp;(selected gels)', '&nbsp;&nbsp;&nbsp;|&nbsp; '; }
+		{ print submit(-name=>'submit', -value=>'Make Public'), '&nbsp;&nbsp;(selected gels)', '&nbsp;&nbsp;&nbsp;|&nbsp; '; }
+		
+		print qq!</td><td><a href="../copurification-cgi/copurification.pl?submit=LaneGrouping&experiment_id=$exp_id" target="top">View Lane Clustering</a>&nbsp;&nbsp;&nbsp;|&nbsp; !;
 		print '</td><td><div id="slider" style="width:100px"></div></td></tr></table>';
 		print '<script>$( "#slider" ).slider(); $( ".selector" ).slider({ min: 0 }); $( "#slider" ).slider({ max: 2 }); $( "#slider" ).on( "slidechange", function( event, ui ) { change_lanes(); } ); </script>';
 		print br();
@@ -4697,8 +4878,134 @@ window.location.assign("../copurification/Reports/$fname")
 </body>
 </html>
 HTML
-	
-	
+}
+
+sub create_lane_grouping_html
+{
+	my $exp_id = shift;
+	my $input_file_name = shift;
+	my $lane_conditions = shift;
+	my %lane_conditions = %{$lane_conditions};
+	my @lane_match_list;
+	my $min_group_score;
+	if (open(IN, "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/$input_file_name"))
+	{
+		my $line = "";
+		
+		$line = <IN>; #max score
+		my $max_score = $line;
+		$min_group_score = $MIN_GROUP_RATIO*$max_score;
+		
+		while ($line = <IN>)
+		{
+			if ($line =~ /^([^\t]+)\t([\.\d]+)$/)
+			{
+				push @lane_match_list, [$1,$2]
+			}
+			else
+			{
+				if (!$PERFORM_GROUPING)
+				{
+					push @lane_match_list, ["SKIP",0]
+				}
+				
+			}
+			
+		}
+		if (!$PERFORM_GROUPING)
+		{
+			while (@lane_match_list)
+			{
+				my @val = pop @lane_match_list;
+				if ($val[0][0] ne "SKIP") { push @lane_match_list, $val[0]; last; }
+			}
+		}
+		
+		my $cur_file_list = "";
+		my $image_map = "";
+		my $html_string = "<tr><td nowrap>";
+		my $group_html_string = "";
+		my @col_ids;
+		push @col_ids, 1;
+		my $cur_group_count = 0;
+		for(my $j = 0; $j <= $#lane_match_list; $j++)
+		{
+			my $lane_file = $lane_match_list[$j][0];
+			if ($lane_file ne "SKIP")
+			{
+				$lane_file =~ /(.*[\\\/])([^\\\/]+)\.lane-details\.(\d+)\.txt$/;
+				my $dir = $1;
+				my $gel_name = $2;
+				my $lane_num = $3;
+				
+				my $conditions="$gel_name lane $lane_num\n";
+				foreach my $reagent_type (keys %{$lane_conditions{"$gel_name"}{"$lane_num"}})
+				{
+					$conditions .= "$reagent_type:\n";
+					foreach my $reagent (@{$lane_conditions{"$gel_name"}{"$lane_num"}{"$reagent_type"}})
+					{
+						$conditions .= "   $reagent\n";
+					}
+				}
+				my $ext = "";
+				if (-e "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/$gel_name.lane.$lane_num.n.a.png")
+				{ $ext = ".a"; }
+				
+				$group_html_string .= "<img src='/copurification/$g_user_id/Experiments/$exp_id/$gel_name.lane.$lane_num.n$ext.png' title='$conditions' style='vertical-align: top;'/>";
+				$cur_group_count++;
+			}
+			
+			if ((!$PERFORM_GROUPING && $lane_file eq "SKIP") || ($j != $#lane_match_list && $lane_match_list[$j][1] < $min_group_score))
+			{
+				if ($cur_group_count > 1)
+				{
+					$html_string .= $group_html_string;
+					$html_string .= "</td><td>";
+					$html_string .= "<img src='/copurification-html/spacing.png'/>";
+					$html_string .= "<img src='/copurification-html/spacing.png'/>";
+					$html_string .= "</td><td>";
+					
+					push @col_ids, 0;
+					push @col_ids, 1;
+				}
+				
+				$cur_group_count = 0;
+				$group_html_string = "";
+			}
+		}
+		if ($cur_group_count > 1)
+		{
+			$html_string .= $group_html_string;
+		}
+		else { pop @col_ids; }
+		
+		if ($#lane_match_list == -1)
+		{
+			$html_string .=  "(no groups found)";
+		}
+		
+		$html_string .= "</td></tr></table>";
+		
+		my $header = "<table>";
+		if ($#col_ids > 0)
+		{
+			$header .= "<tr>";
+			my $rn_code = 8544; #roman numeral code
+			for(my $i = 0; $i <= $#col_ids; $i++)
+			{
+				if ($col_ids[$i] == 1) { $header .= "<td align='center' style='border-bottom: solid 1px black;'>&#$rn_code</td>"; $rn_code++; }
+				else { $header .= "<td>&nbsp;</td>"; }
+			}
+			$header .= "</tr>";
+			
+		}
+		$html_string = $header . $html_string;
+		return $html_string;
+	}
+	else
+	{
+		return "<table><tr><td>Error in creating lane group image: could not open input file: '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/$input_file_name'</td></tr></table>";
+	}
 }
 
 
