@@ -87,7 +87,7 @@ our %QUANTITY_STD_UNITS = ('mg' => 1, 'µg' => 1, 'ng' => 1, 'pg' => 1, 'ug' => 1
 # sub func1 { ... }
 # sub func2 { ... }
 
-sub getConfig { return ('DBI:mysql:GelDB', 'GelDB', 'GelDBAdmin', '96wellgels'); }
+sub getConfig { return ('DBI:mysql:GelDB', 'GelDB', 'admin_user', 'password'); }
 
 sub read_settings
 {
