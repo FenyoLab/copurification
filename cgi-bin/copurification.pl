@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!c:/perl/bin/perl.exe 
 #    copurification.pl - this module handles the CGI for copurification.org and executes queries to the database for the Gel Search functions
 #
 #    Copyright (C) 2015  Sarah Keegan
@@ -27,8 +27,8 @@ use Biochemists_Dream::Common;
 use Biochemists_Dream::GelDataFileReader;
 #use Net::SMTP;
 
-#my $DEVELOPER_VERSION = 1;
-my $DEVELOPER_VERSION = 0;
+my $DEVELOPER_VERSION = 1;
+#my $DEVELOPER_VERSION = 0;
 my $DEVELOPER_LOGFILE = "dev_log.txt";
 
 my $MAX_QUERY_RESULTS_FIELD_LENGTH = 75;
@@ -43,6 +43,8 @@ my $MAX_DISPLAY_LANES = 50;
 my $MIN_GROUP_RATIO = 0; #.94;
 my $SHOW_LADDER_LANES_IN_GROUP = 0;
 my $PERFORM_GROUPING = 0;
+
+my $SERVER_DOWN = 0;
 	
 eval #for exception handling
 {
@@ -70,1569 +72,1659 @@ eval #for exception handling
 
 	if($DEVELOPER_VERSION)
 	{
-		open(DEVEL_OUT, ">>$BASE_DIR/$DATA_DIR/$DEVELOPER_LOGFILE");
-		*STDERR = *DEVEL_OUT;
+		if(open(DEVEL_OUT, ">>$BASE_DIR/$DATA_DIR/$DEVELOPER_LOGFILE"))
+		{
+			*STDERR = *DEVEL_OUT;
 		
-		select(DEVEL_OUT);
-		$|++; # autoflush DEVEL_OUT
-		select(STDOUT);
-	}
-	#if($DEVELOPER_VERSION) { print DEVEL_OUT "Opened developer log file...\n"; }
-	else { open(STDERR, "NUL"); }    #*STDERR = 'NUL'; }
-
-	if(!param())
-	{#no posted data
-		#if logged in, private view:
-		if($g_user_id)
-		{ display_frameset('', 'PRIVATE'); }
-		else
-		{ #if not logged in - public view:
+			select(DEVEL_OUT);
+			$|++; # autoflush DEVEL_OUT
+			select(STDOUT);
 			
-			display_frameset('', 'PUBLIC', 'SEARCH');
+			my $now_string = localtime;
+			print DEVEL_OUT "Log opened: $now_string\n";
 		}
+		else
+		{
+			$DEVELOPER_VERSION = 0;
+			open(STDERR, "NUL"); 
+		}
+		
+	}
+	else { open(STDERR, "NUL"); }    #*STDERR = 'NUL'; }
+	
+	if ($SERVER_DOWN)
+	{
+		print header();
+		print <<START_HTML;	
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>copurification.org</title>
+<link rel="stylesheet" href="../copurification-html/jquery-ui-1.10.1.custom.min.css">
+<link rel="stylesheet" href="../copurification-html/header.css">
+<script src="../copurification-html/jquery-1.9.1.js"></script>
+<script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
+<script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+</head>
+<body style="background-color:white" style="margin:10;">
+<table width="100%" align="center" ><tr bgcolor='lightgrey'><td><h2>copurification.org</h2></td></tr>
+<tr bgcolor='#F5F5DC'><td><h2>Welcome to copurification.org!</h2>
+
+<p>We curate images displaying protein co-purification banding patterns resulting from affinity capture followed by e.g. SDS-PAGE
+and protein staining. We store the conditions of the experiment and link to the resulting banding patterns so purifications under
+different conditions can be compared to one another.
+<br><br>
+<b>The server is down for maintenance from Wednesday, August 26 until Monday August 31, 2015.  Thank you for your patience.</b>
+<br><Br><Br><br><br></p></td></tr>
+</body>
+</html>
+</table>
+START_HTML
 	}
 	else
-	{#form data was posted: process the data
-		#get param list:
-		my @params = param();
-		my $action = param('action');
-		if(!$action) { $action = param('submit'); }
-		$g_frame = param('frame') || '';
-
-		if($g_user_id)
-		{ #load user info.
-			$g_user_login = 1;
-			if(!login_the_user())
-			{ #error page!
-				display_public_error_page("User login failed (cookie invalid, $g_user_id).", 1);
-			}
-
-			my $email = $g_the_user -> get('Email');
-			if($DEVELOPER_VERSION) { print DEVEL_OUT "User info loaded for $email\n"; }
-		}
-		
-		if($g_frame eq '3')
-		{#display frame 3 - title header
-			if($g_user_login) { display_frame3(); }
+	{
+		if(!param())
+		{#no posted data
+			#if logged in, private view:
+			if($g_user_id)
+			{ display_frameset('', 'PRIVATE'); }
 			else
-			{
-				display_public_error_page("Error loading frame...", 1);
+			{ #if not logged in - public view:
+				
+				display_frameset('', 'PUBLIC', 'Home');
+			}
+		}
+		else
+		{#form data was posted: process the data
+			#get param list:
+			my @params = param();
+			my $action = param('action');
+			if(!$action) { $action = param('submit'); }
+			$g_frame = param('frame') || '';
+	
+			if($g_user_id)
+			{ #load user info.
+				$g_user_login = 1;
+				if(!login_the_user())
+				{ #error page!
+					display_public_error_page("User login failed (cookie invalid, $g_user_id).", 1);
+				}
+	
+				my $email = $g_the_user -> get('Email');
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "User info loaded for $email\n"; }
 			}
 			
-			exit(0);
-		}
-		if($g_frame eq '1')
-		{#display frame 1 - project tree
-			if($g_user_login) { display_frame1(); }
-			else
-			{
-				display_public_error_page("Error loading frame...", 1);
-			}
-			
-			exit(0);
-		}
-		if ($g_frame eq '1p') #frame 1p - header of public page
-		{
-			display_frame1p();
-			exit(0);
-		}
-		if ($g_frame eq '2p') #frame 2p - 
-		{
-			my $mode = param('mode');
-			if ($mode)
-			{
-				if ($mode eq 'MESSAGE')
-				{
-					my $msg = param('Text');
-					display_frame2p($mode, $msg);
-				}
-				else { display_frame2p($mode); }
-				
-				
-			}
-			else
-			{
-				if ($g_user_id)
-				{
-					display_private_error_page("Error loading frame...");
-				}
-				else
-				{
-					display_public_error_page("Error loading frame...", 1);
-				}
-			}
-			exit(0);
-		}
-		
-		if(!$action)
-		{#no action, at the home page
-			if($g_frame eq '2')
-			{#display frame 2 - the root main page (add a project to root) OR user login screen
-				if($g_user_login) { display_frame2('PROJECT', 0, -1); }
+			if($g_frame eq '3')
+			{#display frame 3 - title header
+				if($g_user_login) { display_frame3(); }
 				else
 				{
 					display_public_error_page("Error loading frame...", 1);
 				}
 				
+				exit(0);
 			}
-			else
-			{
-				if ($g_user_id)
-				{
-					display_private_error_page("Error loading frame...");
-				}
+			if($g_frame eq '1')
+			{#display frame 1 - project tree
+				if($g_user_login) { display_frame1(); }
 				else
 				{
 					display_public_error_page("Error loading frame...", 1);
 				}
+				
+				exit(0);
 			}
-			exit(0);
-		}
-
-		if ($action eq 'contact_us')
-		{
-			;
-		}
-		elsif($action eq "LanesReport")
-		{
-			my $MAX_DISPLAY_LANES_ON_PAGE = 10;
-			
-			my $type = param('type'); #PUBLIC or PRIVATE
-			
-			#get the lanes
-			my $lanes_str = param('IdList');
-			my $protein_name = param('protein');
-			my $species = param('species');
-			my @lanes_list = split('-',$lanes_str);
-			
-			my $cur_num_lanes = 0; 
-			my @lanes_to_display=(); my %reagents_to_display; my @users_to_display=(); my @exps_to_display=();  my @projects_to_display=();
-			my @ph_to_display=(); my @exp_proc_files_to_display=();
-			my @gel_details_files_to_display=(); my @img_tags_to_display=(); my @html_file_names=(); my $page_number = 1; my $lane_i = 0;
-			my @over_exp_to_display = (); my @tag_type_to_display = (); my @tag_loc_to_display = ();
-			my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = ();
-			my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql( qq { Id IN ($lanes_str) } ); 
-			foreach my $lane (@lanes)
+			if ($g_frame eq '1p') #frame 1p - header of public page
 			{
-				my $lane_id = $lane -> get("Id");
-				my $lane_order = $lane -> get("Lane_Order");
-				push @lanes_to_display, $lane_id;
-					
-				my @lane_reagents = $lane -> lane_reagents;
-				foreach my $lane_reagent (@lane_reagents)
+				display_frame1p();
+				exit(0);
+			}
+			if ($g_frame eq '2p') #frame 2p - 
+			{
+				my $mode = param('mode');
+				if ($mode)
 				{
-					my $amt = $lane_reagent -> get("Amount");
-					$amt =~ s/0+$//; $amt =~ s/\.$//;
-					my $units = $lane_reagent -> get("Amount_Units");
-					my $reagent = $lane_reagent -> Reagent_Id;
-					my $type = $reagent -> get("Reagent_Type");
-					my $chem = $reagent -> get("Name");
-					if(defined $reagents_to_display{$lane_id}{$type})
+					if ($mode eq 'MESSAGE')
 					{
-						$reagents_to_display{$lane_id}{$type} = "$reagents_to_display{$lane_id}{$type}, $amt $units $chem";
+						my $msg = param('Text');
+						display_frame2p($mode, $msg);
 					}
-					else { $reagents_to_display{$lane_id}{$type} = "$amt $units $chem"; }
-				}
-				
-				my $gel = $lane -> Gel_Id;
-				my $gel_id = $gel -> get('Id');
-				my $experiment = $gel -> Experiment_Id;
-				my $project = $experiment -> Project_Id;
-				my $user = $project -> User_Id;
-				my $exp_proc_file = $experiment -> get('Experiment_Procedure_File');
-				my $gel_details_file = $experiment -> get('Gel_Details_File');
-				
-				my $gel_file_id = $gel -> get("File_Id");
-				my $experiment_id = $gel -> get("Experiment_Id");
-				my $user_id = $user -> get('Id');
-				
-				if ($type eq 'PUBLIC')
-				{
-					my $fname = $user -> get('First_Name');
-					my $lname = $user -> get('Last_Name');
-					push @users_to_display, "$lname, $fname";
+					else { display_frame2p($mode); }
+					
+					
 				}
 				else
 				{
-					push @exps_to_display, $experiment -> Name;
-					push @projects_to_display, $project -> Name;
-				}
-				
-				if ($exp_proc_file)
-				{#should have one since the gel is public!
-					$exp_proc_file = qq!<a href="http://$HOSTNAME/copurification/$user_id/Experiment_Procedures/$exp_proc_file" target="_blank">$exp_proc_file</a>!;
-				}
-				else { $exp_proc_file = '(none)'; }
-				
-				if ($gel_details_file)
-				#should have one since the gel is public!
-				{
-					$gel_details_file = qq!<a href="http://$HOSTNAME/copurification/$user_id/Gel_Details/$gel_details_file" target="_blank">$gel_details_file</a>!;
-				}
-				else { $gel_details_file = '(none)'; }
-				
-				push @exp_proc_files_to_display, $exp_proc_file;
-				push @gel_details_files_to_display, $gel_details_file;
-		
-				my $ph = $lane -> get('Ph');
-				$ph =~ s/0+$//; $ph =~ s/\.$//;
-				push @ph_to_display, $ph;
-				
-				my $over_exp = $lane -> get('Over_Expressed');
-				if (defined $over_exp)
-				{ 
-					if ($over_exp)
-					{ push @over_exp_to_display, 'Yes'; }
-					else { push @over_exp_to_display, 'No'; }
-				}
-				else { push @over_exp_to_display, '-'; }
-				
-				my $field = $lane -> get('Tag_Type');
-				if (defined $field) { push @tag_type_to_display, $field; }
-				else { push @tag_type_to_display, '-'; }
-				
-				$field = $lane -> get('Tag_Location');
-				if (defined $field) { push @tag_loc_to_display, $field; }
-				else { push @tag_loc_to_display, '-'; }
-				
-				$field = $lane -> get('Antibody');
-				if (defined $field) { push @antibody_to_display, $field; }
-				else { push @antibody_to_display, '-'; }
-				
-				$field = $lane -> get('Other_Capture');
-				if (defined $field) { push @other_cap_to_display, $field; }
-				else { push @other_cap_to_display, '-'; }
-				
-				$field = $lane -> get('Notes');
-				if (defined $field) { push @notes_to_display, $field; }
-				else { push @notes_to_display, '-'; }
-				
-				my @cal_lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, Quantity_Std_Cal_Lane => 1);
-				my $units = "";
-				if($#cal_lanes >= 0) { $units = $cal_lanes[0] -> get('Quantity_Std_Units'); }
-				
-				my $gel_root = 'gel' . $gel_file_id;
-				#use middle image - medium darkness
-				my $img_tag = qq!<img src="../$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.n.png" >!;
-				push @img_tags_to_display, $img_tag;
-				
-				#add output where the masses/quanitty are displayed next to bands!?
-				
-				$cur_num_lanes++;
-				if(($cur_num_lanes == $MAX_DISPLAY_LANES_ON_PAGE) || ($lane_i == $#lanes))
-				{
-					my $fname;
-					if ($type eq 'PUBLIC')
+					if ($g_user_id)
 					{
-						$fname = save_query_results('PUBLIC', $protein_name, $species, \@lanes_to_display, \%reagents_to_display,
-									\@img_tags_to_display, \@ph_to_display, \@users_to_display, \@exp_proc_files_to_display,
-									\@gel_details_files_to_display, \@over_exp_to_display, \@tag_type_to_display,
-									\@tag_loc_to_display, \@antibody_to_display, \@other_cap_to_display,
-									\@notes_to_display, $page_number); #save html to a file(s) in Reports dir
+						display_private_error_page("Error loading frame...");
 					}
 					else
 					{
-						$fname = save_query_results('PRIVATE', $protein_name, $species, \@lanes_to_display, \%reagents_to_display,
-									\@img_tags_to_display, \@ph_to_display, \@exps_to_display, \@projects_to_display,
-									\@exp_proc_files_to_display,
-									\@gel_details_files_to_display, \@over_exp_to_display, \@tag_type_to_display,
-									\@tag_loc_to_display, \@antibody_to_display, \@other_cap_to_display,
-									\@notes_to_display, $page_number); #save html to a file(s) in Reports dir
+						display_public_error_page("Error loading frame...", 1);
+					}
+				}
+				exit(0);
+			}
+			
+			if(!$action)
+			{#no action, at the home page
+				if($g_frame eq '2')
+				{#display frame 2 - the root main page (add a project to root) OR user login screen
+					if($g_user_login) { display_frame2('PROJECT', 0, -1); }
+					else
+					{
+						display_public_error_page("Error loading frame...", 1);
 					}
 					
-					$fname =~ s/^/"/; #put quotes around it for when we make the system call...
-					$fname =~ s/$/"/;
-					push @html_file_names, $fname;
-					
-					#clear the data structures
-					undef @lanes_to_display; undef @img_tags_to_display; undef @ph_to_display; undef @users_to_display;
-					undef @exp_proc_files_to_display; undef @gel_details_files_to_display; undef %reagents_to_display;
-					@lanes_to_display=(); @img_tags_to_display=(); @ph_to_display=(); @users_to_display=();
-					@exp_proc_files_to_display=(); @gel_details_files_to_display=(); %reagents_to_display=();
-					undef @over_exp_to_display; undef @tag_type_to_display; undef @tag_loc_to_display;
-					undef @antibody_to_display; undef @other_cap_to_display; undef @notes_to_display;
-					@over_exp_to_display = (); @tag_type_to_display = (); @tag_loc_to_display = ();
-					@antibody_to_display = (); @other_cap_to_display = (); @notes_to_display = ();
-					undef @exps_to_display; undef @projects_to_display;
-					@exps_to_display = (); @projects_to_display = ();
-					
-					$page_number++;
-					$cur_num_lanes = 0;
 				}
-				$lane_i++;
-			}
-			
-			#convert file(s) to pdf
-			my $html_files_str = join(' ', @html_file_names);
-			my $time = localtime;
-			$time =~ s/:/ /g;
-			my $rnum = rand();
-			$rnum =~ s/^0.//;
-			my $pdf_file_name = "$BASE_DIR/$DATA_DIR/Reports/$protein_name-$species-$time-$lane_i-Lanes.$rnum.pdf";
-			my $sys_ret = system(qq!"$WKHTMLTOPDF_DIR/wkhtmltopdf" $html_files_str "$pdf_file_name"!);
-			if($sys_ret != 0)
-			{
-				#error!
-			}
-			
-			#delete the html files 
-			foreach my $file (@html_file_names)
-			{
-				$file =~ s/"//g;
-				unlink("$file");
-			}
-		
-			#return page with js that redirects to pdf file 'download'
-			$pdf_file_name =~ s/^.+[\\\/]([^\\\/]+\.pdf$)/$1/; #get only file name not dirs
-			display_report_download_page($pdf_file_name);
-			
-			#add code to check for errors!!!
-			
-		}
-		elsif($action eq "OpenPublicView")
-		{
-			display_frame2p('PUBLICVIEW SEARCH');
-
-		}
-		elsif($action eq "LaneGrouping")
-		{
-			#get the gel id's for the analysis, or use all gels in the experiment?
-			#my @ids = param('gels_public');
-			my $exp_id = param('experiment_id');
-			if(1) # (!(-e "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
-			{
-				my $exp = Biochemists_Dream::Experiment -> retrieve($exp_id);
-				my $exp_name = $exp -> Name;
-				
-				#get gels, we will need the gel file name
-				my @gels = Biochemists_Dream::Gel -> search(Experiment_Id => $exp_id);
-				my %gel_files;
-				foreach my $gel (@gels)
+				else
 				{
-					my $gel_id = $gel -> Id;
-					my $file_id = $gel -> File_Id;
-					$gel_files{$gel_id} = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/gel$file_id";
+					if ($g_user_id)
+					{
+						display_private_error_page("Error loading frame...");
+					}
+					else
+					{
+						display_public_error_page("Error loading frame...", 1);
+					}
+				}
+				exit(0);
+			}
+	
+			if ($action eq 'ContactList')
+			{
+				#save to a file, the email address
+				my $email = param('email');
+				my $msg = '';
+				if ($email)
+				{
+					my $res = save_to_contact_list($email);
+					if($res) { $msg = 'Thank you!  Your email has been submitted to our contact list.' }
+					else { $msg = 'Sorry - there was a problem when submitting your email address.'; }
+				}
+				else
+				{
+					$msg = 'Sorry - there was a problem when submitting your email address.';
 				}
 				
-				#gel all lanes in this experiment and sort by captured protein id
-				my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
-					qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Experiment_Id = $exp_id) ORDER BY Captured_Protein_Id } );
-				my %lanes_to_group;
-				my %lane_conditions;
+				display_frameset('', 'PUBLIC', 'MESSAGE', $msg);
+				display_footer();
+				
+			}
+			elsif($action eq "LanesReport")
+			{
+				my $MAX_DISPLAY_LANES_ON_PAGE = 10;
+				
+				my $type = param('type'); #PUBLIC or PRIVATE
+				
+				#get the lanes
+				my $lanes_str = param('IdList');
+				my $protein_name = param('protein');
+				my $species = param('species');
+				my @lanes_list = split('-',$lanes_str);
+				
+				my $cur_num_lanes = 0; 
+				my @lanes_to_display=(); my %reagents_to_display; my @users_to_display=(); my @exps_to_display=();  my @projects_to_display=();
+				my @ph_to_display=(); my @exp_proc_files_to_display=();
+				my @gel_details_files_to_display=(); my @img_tags_to_display=(); my @html_file_names=(); my $page_number = 1; my $lane_i = 0;
+				my @over_exp_to_display = (); my @tag_type_to_display = (); my @tag_loc_to_display = ();
+				my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = ();
+				my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql( qq { Id IN ($lanes_str) } ); 
 				foreach my $lane (@lanes)
-				{#organize lanes by cap protein id
-					#my $lane_id = $lane -> Id;
-					my $cap_protein_id = $lane -> Captured_Protein_Id;
-					my $gel_id = $lane -> Gel_Id;
-					my $lane_num = $lane -> Lane_Order;
-					if ($cap_protein_id)
-					{#skip calibration lanes (cap protein id == null)
-						push @{$lanes_to_group{"$cap_protein_id"}{"$gel_id"}}, "$lane_num";
-					}
-					else
-					{
-						if ($SHOW_LADDER_LANES_IN_GROUP)
-						{
-							push @{$lanes_to_group{"-1"}{"$gel_id"}}, "$lane_num";
-						}
+				{
+					my $lane_id = $lane -> get("Id");
+					my $lane_order = $lane -> get("Lane_Order");
+					push @lanes_to_display, $lane_id;
 						
-					}
-					
-					#organize/store the conditions for this lane, so that we may show it in the html created below
 					my @lane_reagents = $lane -> lane_reagents;
-					
-					#my @lane_reagents = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql( qq{ Lane_Id = $lane_id } );
 					foreach my $lane_reagent (@lane_reagents)
 					{
-						my $amount = $lane_reagent -> Amount;
-						my $units = $lane_reagent -> Amount_Units;
+						my $amt = $lane_reagent -> get("Amount");
+						$amt =~ s/0+$//; $amt =~ s/\.$//;
+						my $units = $lane_reagent -> get("Amount_Units");
 						my $reagent = $lane_reagent -> Reagent_Id;
-						my $name = $reagent -> Short_Name;
-						my $type = $reagent -> Reagent_Type;
-						$gel_files{$gel_id} =~ /(gel\d+)$/;
-						push @{$lane_conditions{$1}{"$lane_num"}{"$type"}}, "$amount $units $name";
-					}
-					
-				}
-				if ($SHOW_LADDER_LANES_IN_GROUP)
-				{
-					foreach my $cap_protein_id (keys %lanes_to_group)
-					{
-						if ($cap_protein_id ne "-1")
+						my $type = $reagent -> get("Reagent_Type");
+						my $chem = $reagent -> get("Name");
+						if(defined $reagents_to_display{$lane_id}{$type})
 						{
-							#add ladder lanes in with this set
-							foreach my $gel_id (keys %{$lanes_to_group{"-1"}})
-							{
-								foreach my $lane_num (@{$lanes_to_group{"-1"}{$gel_id}})
-								{
-									push @{$lanes_to_group{"$cap_protein_id"}{"$gel_id"}}, "$lane_num";
-								}
-							}
-							last;
+							$reagents_to_display{$lane_id}{$type} = "$reagents_to_display{$lane_id}{$type}, $amt $units $chem";
 						}
-						
-					}
-				}
-				
-				my $error_string = "";
-				#run lane grouping for each cap protein id
-				foreach my $cap_protein_id (keys %lanes_to_group)
-				{
-					if ($cap_protein_id eq "-1") { next; }
-					
-					my $lanes_to_run = "";
-					foreach my $gel_id (keys %{$lanes_to_group{$cap_protein_id}})
-					{
-						$lanes_to_run .= ('"' . $gel_files{$gel_id} . '" ');
-						my $lanes = join(' ', @{$lanes_to_group{$cap_protein_id}{$gel_id}});
-						$lanes_to_run .= ( '"' . $lanes . '" ');
+						else { $reagents_to_display{$lane_id}{$type} = "$amt $units $chem"; }
 					}
 					
-					my $cmd_out = `"../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run`;	
-					if ( $? == -1 )
+					my $gel = $lane -> Gel_Id;
+					my $gel_id = $gel -> get('Id');
+					my $experiment = $gel -> Experiment_Id;
+					my $project = $experiment -> Project_Id;
+					my $user = $project -> User_Id;
+					my $exp_proc_file = $experiment -> get('Experiment_Procedure_File');
+					my $gel_details_file = $experiment -> get('Gel_Details_File');
+					
+					my $gel_file_id = $gel -> get("File_Id");
+					my $experiment_id = $gel -> get("Experiment_Id");
+					my $user_id = $user -> get('Id');
+					
+					if ($type eq 'PUBLIC')
 					{
-					    $error_string = qq?ERROR: command failed (calculate_lane_scores.pl): $!\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
-					}
-					elsif($? >> 8 != 0) # exit value not 0, indicates error...
-					{
-					    $error_string = sprintf("ERROR: command (calculate_lane_scores.pl) exited with value %d\n", $? >> 8);
-					    $error_string .= qq?$cmd_out\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
-					}
-				}
-				if(open(OUT, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
-				{
-					if ($error_string)
-					{
-						print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
-						print OUT "<p>Error: <pre>$error_string</pre></p>";
-						print OUT "</BODY></HTML>";
-						close(OUT);
+						my $fname = $user -> get('First_Name');
+						my $lname = $user -> get('Last_Name');
+						push @users_to_display, "$lname, $fname";
 					}
 					else
 					{
-						print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
-						print OUT "<h1>Lane Clustering for Experiment '$exp_name'</h1>";
-						#get results txt files and create image/html
-						foreach my $cap_protein_id (keys %lanes_to_group)
+						push @exps_to_display, $experiment -> Name;
+						push @projects_to_display, $project -> Name;
+					}
+					
+					if ($exp_proc_file)
+					{#should have one since the gel is public!
+						$exp_proc_file = qq!<a href="http://$HOSTNAME/copurification/$user_id/Experiment_Procedures/$exp_proc_file" target="_blank">$exp_proc_file</a>!;
+					}
+					else { $exp_proc_file = '(none)'; }
+					
+					if ($gel_details_file)
+					#should have one since the gel is public!
+					{
+						$gel_details_file = qq!<a href="http://$HOSTNAME/copurification/$user_id/Gel_Details/$gel_details_file" target="_blank">$gel_details_file</a>!;
+					}
+					else { $gel_details_file = '(none)'; }
+					
+					push @exp_proc_files_to_display, $exp_proc_file;
+					push @gel_details_files_to_display, $gel_details_file;
+			
+					my $ph = $lane -> get('Ph');
+					$ph =~ s/0+$//; $ph =~ s/\.$//;
+					push @ph_to_display, $ph;
+					
+					my $over_exp = $lane -> get('Over_Expressed');
+					if (defined $over_exp)
+					{ 
+						if ($over_exp)
+						{ push @over_exp_to_display, 'Yes'; }
+						else { push @over_exp_to_display, 'No'; }
+					}
+					else { push @over_exp_to_display, '-'; }
+					
+					my $field = $lane -> get('Tag_Type');
+					if (defined $field) { push @tag_type_to_display, $field; }
+					else { push @tag_type_to_display, '-'; }
+					
+					$field = $lane -> get('Tag_Location');
+					if (defined $field) { push @tag_loc_to_display, $field; }
+					else { push @tag_loc_to_display, '-'; }
+					
+					$field = $lane -> get('Antibody');
+					if (defined $field) { push @antibody_to_display, $field; }
+					else { push @antibody_to_display, '-'; }
+					
+					$field = $lane -> get('Other_Capture');
+					if (defined $field) { push @other_cap_to_display, $field; }
+					else { push @other_cap_to_display, '-'; }
+					
+					$field = $lane -> get('Notes');
+					if (defined $field) { push @notes_to_display, $field; }
+					else { push @notes_to_display, '-'; }
+					
+					my @cal_lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, Quantity_Std_Cal_Lane => 1);
+					my $units = "";
+					if($#cal_lanes >= 0) { $units = $cal_lanes[0] -> get('Quantity_Std_Units'); }
+					
+					my $gel_root = 'gel' . $gel_file_id;
+					#use middle image - medium darkness
+					my $img_tag = qq!<img src="../$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.n.png" >!;
+					push @img_tags_to_display, $img_tag;
+					
+					#add output where the masses/quanitty are displayed next to bands!?
+					
+					$cur_num_lanes++;
+					if(($cur_num_lanes == $MAX_DISPLAY_LANES_ON_PAGE) || ($lane_i == $#lanes))
+					{
+						my $fname;
+						if ($type eq 'PUBLIC')
 						{
-							if ($cap_protein_id eq "-1") { next; }
-							print OUT "<H2>Captured Protein: ";
-							my $protein = Biochemists_Dream::Protein_DB_Entry -> retrieve($cap_protein_id);
-							print OUT $protein -> Common_Name;
-							print OUT " (";
-							print OUT $protein -> Systematic_Name;
-							print OUT ")</H2>";
-							
-							my $html = create_lane_grouping_html($exp_id, "$cap_protein_id.lane_scores.txt", \%lane_conditions);
-							print OUT $html;
+							$fname = save_query_results('PUBLIC', $protein_name, $species, \@lanes_to_display, \%reagents_to_display,
+										\@img_tags_to_display, \@ph_to_display, \@users_to_display, \@exp_proc_files_to_display,
+										\@gel_details_files_to_display, \@over_exp_to_display, \@tag_type_to_display,
+										\@tag_loc_to_display, \@antibody_to_display, \@other_cap_to_display,
+										\@notes_to_display, $page_number); #save html to a file(s) in Reports dir
+						}
+						else
+						{
+							$fname = save_query_results('PRIVATE', $protein_name, $species, \@lanes_to_display, \%reagents_to_display,
+										\@img_tags_to_display, \@ph_to_display, \@exps_to_display, \@projects_to_display,
+										\@exp_proc_files_to_display,
+										\@gel_details_files_to_display, \@over_exp_to_display, \@tag_type_to_display,
+										\@tag_loc_to_display, \@antibody_to_display, \@other_cap_to_display,
+										\@notes_to_display, $page_number); #save html to a file(s) in Reports dir
+						}
+						
+						$fname =~ s/^/"/; #put quotes around it for when we make the system call...
+						$fname =~ s/$/"/;
+						push @html_file_names, $fname;
+						
+						#clear the data structures
+						undef @lanes_to_display; undef @img_tags_to_display; undef @ph_to_display; undef @users_to_display;
+						undef @exp_proc_files_to_display; undef @gel_details_files_to_display; undef %reagents_to_display;
+						@lanes_to_display=(); @img_tags_to_display=(); @ph_to_display=(); @users_to_display=();
+						@exp_proc_files_to_display=(); @gel_details_files_to_display=(); %reagents_to_display=();
+						undef @over_exp_to_display; undef @tag_type_to_display; undef @tag_loc_to_display;
+						undef @antibody_to_display; undef @other_cap_to_display; undef @notes_to_display;
+						@over_exp_to_display = (); @tag_type_to_display = (); @tag_loc_to_display = ();
+						@antibody_to_display = (); @other_cap_to_display = (); @notes_to_display = ();
+						undef @exps_to_display; undef @projects_to_display;
+						@exps_to_display = (); @projects_to_display = ();
+						
+						$page_number++;
+						$cur_num_lanes = 0;
+					}
+					$lane_i++;
+				}
+				
+				#convert file(s) to pdf
+				my $html_files_str = join(' ', @html_file_names);
+				my $time = localtime;
+				$time =~ s/:/ /g;
+				my $rnum = rand();
+				$rnum =~ s/^0.//;
+				my $pdf_file_name = "$BASE_DIR/$DATA_DIR/Reports/$protein_name-$species-$time-$lane_i-Lanes.$rnum.pdf";
+				my $sys_ret = system(qq!"$WKHTMLTOPDF_DIR/wkhtmltopdf" $html_files_str "$pdf_file_name"!);
+				if($sys_ret != 0)
+				{
+					#error!
+				}
+				
+				#delete the html files 
+				foreach my $file (@html_file_names)
+				{
+					$file =~ s/"//g;
+					unlink("$file");
+				}
+			
+				#return page with js that redirects to pdf file 'download'
+				$pdf_file_name =~ s/^.+[\\\/]([^\\\/]+\.pdf$)/$1/; #get only file name not dirs
+				display_report_download_page($pdf_file_name);
+				
+				#add code to check for errors!!!
+				
+			}
+			elsif($action eq "OpenPublicView")
+			{
+				display_frame2p('PUBLICVIEW SEARCH');
+	
+			}
+			elsif($action eq "LaneGrouping")
+			{
+				#get the gel id's for the analysis, or use all gels in the experiment?
+				#my @ids = param('gels_public');
+				my $exp_id = param('experiment_id');
+				my $exp = Biochemists_Dream::Experiment -> retrieve($exp_id);
+				my $user_id = $exp -> Project_Id -> User_Id;
+				if(1) # (!(-e "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
+				{
+					
+					my $exp_name = $exp -> Name;
+					
+					#get gels, we will need the gel file name
+					my @gels = Biochemists_Dream::Gel -> search(Experiment_Id => $exp_id);
+					my %gel_files;
+					foreach my $gel (@gels)
+					{
+						my $gel_id = $gel -> Id;
+						my $file_id = $gel -> File_Id;
+						$gel_files{$gel_id} = "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id/gel$file_id";
+					}
+					
+					#gel all lanes in this experiment and sort by captured protein id
+					my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
+						qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Experiment_Id = $exp_id) ORDER BY Captured_Protein_Id } );
+					my %lanes_to_group;
+					my %lane_conditions;
+					foreach my $lane (@lanes)
+					{#organize lanes by cap protein id
+						#my $lane_id = $lane -> Id;
+						my $cap_protein_id = $lane -> Captured_Protein_Id;
+						my $gel_id = $lane -> Gel_Id;
+						my $lane_num = $lane -> Lane_Order;
+						if ($cap_protein_id)
+						{#skip calibration lanes (cap protein id == null)
+							push @{$lanes_to_group{"$cap_protein_id"}{"$gel_id"}}, "$lane_num";
+						}
+						else
+						{
+							if ($SHOW_LADDER_LANES_IN_GROUP)
+							{
+								push @{$lanes_to_group{"-1"}{"$gel_id"}}, "$lane_num";
+							}
 							
 						}
-						print OUT "</BODY></HTML>";
-						close(OUT);
+						
+						#organize/store the conditions for this lane, so that we may show it in the html created below
+						my @lane_reagents = $lane -> lane_reagents;
+						
+						#my @lane_reagents = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql( qq{ Lane_Id = $lane_id } );
+						foreach my $lane_reagent (@lane_reagents)
+						{
+							my $amount = $lane_reagent -> Amount;
+							my $units = $lane_reagent -> Amount_Units;
+							my $reagent = $lane_reagent -> Reagent_Id;
+							my $name = $reagent -> Short_Name;
+							my $type = $reagent -> Reagent_Type;
+							$gel_files{$gel_id} =~ /(gel\d+)$/;
+							push @{$lane_conditions{$1}{"$lane_num"}{"$type"}}, "$amount $units $name";
+						}
+						
 					}
+					if ($SHOW_LADDER_LANES_IN_GROUP)
+					{
+						foreach my $cap_protein_id (keys %lanes_to_group)
+						{
+							if ($cap_protein_id ne "-1")
+							{
+								#add ladder lanes in with this set
+								foreach my $gel_id (keys %{$lanes_to_group{"-1"}})
+								{
+									foreach my $lane_num (@{$lanes_to_group{"-1"}{$gel_id}})
+									{
+										push @{$lanes_to_group{"$cap_protein_id"}{"$gel_id"}}, "$lane_num";
+									}
+								}
+								last;
+							}
+							
+						}
+					}
+					
+					my $error_string = "";
+					#run lane grouping for each cap protein id
+					foreach my $cap_protein_id (keys %lanes_to_group)
+					{
+						if ($cap_protein_id eq "-1") { next; }
+						
+						my $lanes_to_run = "";
+						foreach my $gel_id (keys %{$lanes_to_group{$cap_protein_id}})
+						{
+							$lanes_to_run .= ('"' . $gel_files{$gel_id} . '" ');
+							my $lanes = join(' ', @{$lanes_to_group{$cap_protein_id}{$gel_id}});
+							$lanes_to_run .= ( '"' . $lanes . '" ');
+						}
+						
+						my $cmd_out = `"../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run`;	
+						if ( $? == -1 )
+						{
+						    $error_string = qq?ERROR: command failed (calculate_lane_scores.pl): $!\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
+						}
+						elsif($? >> 8 != 0) # exit value not 0, indicates error...
+						{
+						    $error_string = sprintf("ERROR: command (calculate_lane_scores.pl) exited with value %d\n", $? >> 8);
+						    $error_string .= qq?$cmd_out\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
+						}
+					}
+					if(open(OUT, ">$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id/lane_grouping.html"))
+					{
+						if ($error_string)
+						{
+							print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
+							print OUT "<p>Error: <pre>$error_string</pre></p>";
+							print OUT "</BODY></HTML>";
+							close(OUT);
+						}
+						else
+						{
+							print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
+							print OUT "<h1>Lane Clustering for Experiment '$exp_name'</h1>";
+							#get results txt files and create image/html
+							foreach my $cap_protein_id (keys %lanes_to_group)
+							{
+								if ($cap_protein_id eq "-1") { next; }
+								print OUT "<H2>Captured Protein: ";
+								my $protein = Biochemists_Dream::Protein_DB_Entry -> retrieve($cap_protein_id);
+								print OUT $protein -> Common_Name;
+								print OUT " (";
+								print OUT $protein -> Systematic_Name;
+								print OUT ")</H2>";
+								
+								my $html = create_lane_grouping_html($exp_id, $user_id, "$cap_protein_id.lane_scores.txt", \%lane_conditions);
+								print OUT $html;
+								
+							}
+							print OUT "</BODY></HTML>";
+							close(OUT);
+						}
+					}
+					else
+					{
+						;
+					}
+				}
+				
+				#load html from file and return it
+				print header();
+				if(open(IN, "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id/lane_grouping.html"))
+				{	
+					while(<IN>) { print; }
 				}
 				else
 				{
 					;
 				}
-			}
-			
-			#load html from file and return it
-			print header();
-			if(open(IN, "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/lane_grouping.html"))
-			{	
-				while(<IN>) { print; }
-			}
-			else
-			{
-				;
-			}
-
-		}
-		elsif($action eq "Login")
-		{#attempt to log in the user
-			my $email = param('email');
-			my $password = param('password');
-
-			$g_user_id = validate_user($email, $password);
-			if($DEVELOPER_VERSION) { print DEVEL_OUT "g_user_id = $g_user_id\n"; }
-			if($g_user_id)
-			{#login successful
-				#set cookie
-				my @cookies;
-				my $cookie = cookie(-name=>'user_id', -value=>"$g_user_id");
-				push @cookies, $cookie;
-
-				login_the_user();
-
-				#go to private view
-				display_frameset(\@cookies, 'PRIVATE');
-			}
-			else
-			{#login unsuccessful, reload login page w/ error message
-				display_public_error_page("Sorry, the login failed.", 1);
-			}
-		}
-		elsif($action eq "LoginPage")
-		{
-			if(!$g_user_login)
-			{
-				display_frame2p('LOGIN');
-			}
-			else
-			{
-				display_frameset('', 'PRIVATE');
-			}
-		}
-		elsif($action eq "FAQ")
-		{#display the faq page...
-			if(!$g_user_login)
-			{
-				display_frame2p('FAQ');
-			}
-			else
-			{
-				display_frame2('FAQ');
-			}				
-
-		}
-		elsif($action eq "HowTo")
-		{#display the howto page...
-			if(!$g_user_login)
-			{
-				display_frame2p('HowTo');
-			}
-			else
-			{
-				display_frame2('HowTo');
-			}				
-
-		}
-		elsif($action eq "About")
-		{#display the about page...
-			if(!$g_user_login)
-			{
-				display_frame2p('About');
-			}
-			else
-			{
-				display_frame2('About');
-			}				
-
-		}
-		elsif($action eq "Contact")
-		{#display the Contact page...
-			if(!$g_user_login)
-			{
-				display_frame2p('Contact');
-			}
-			else
-			{
-				display_frame2('Contact');
-			}				
-
-		}
-		elsif($action eq "SearchPublicGels")
-		{
-			if(!$g_user_login)
-			{
-				display_frame2p('SEARCH');
-			}
-			else
-			{
-				display_frameset('', 'PUBLIC', 'PUBLICVIEW SEARCH');
-			}
-		}
-		elsif($action eq "Choose Reagents")
-		{#next button from search input page
-			#gather inputs and show amount ranges of selected reagents
-			if(!$g_user_login)
-			{
-				display_frame2p('SEARCH 2');
-			}
-			else
-			{
-				display_frame2p('PUBLICVIEW SEARCH 2');
-			}
-			
-		}
-		elsif($action eq "Set Ranges")
-		{#next button from search input page
-			#gather inputs and show amount ranges of selected reagents
-			if(!$g_user_login)
-			{
-				display_frame2p('SEARCH 3');
-			}
-			else
-			{
-				display_frame2p('PUBLICVIEW SEARCH 3');
-			}
-			
-		}
-		elsif($action eq "Search" || $action eq "Search User")
-		{#perform the public gel search and display results
-			
-			if ($action eq "Search User" && !$g_user_login)
-			{
-				display_public_error_page("Invalid action for public user. ('Search User').", 1);
-				exit(0);
-			}
-			
-			my $err_str = "";
-			#get search parameters:
-			my $species = param('species');
-			my $protein_str = param('protein');
-			
-			my $protein_name = $protein_str;
-			$protein_name =~ s/^([0-9]+) //;
-			my $protein = $1;
-			
-			
-			my $where_clause;
-			my @users; my $user_id_list;
-			if ($action eq "Search")
-			{
-				#turn user ids into comma separated lists for sql statment
-				@users = param('user_ids');
-				$user_id_list = "";
-				foreach (@users) { if($_ ne -1) { $user_id_list .= "$_, "; } }
-				$user_id_list =~ s/, $//;
-			}
-			else
-			{
-				my @projs_id = param('projects_id');
-				my @exps_id = param('exps_id');
-				if (!@exps_id)
-				{ $where_clause = "(project_id in (" . join(',', @projs_id) . "))"; }
-				elsif(!@projs_id)
-				{ $where_clause = "(id in (" . join(',', @exps_id) . "))"; }
-				else
-				{ $where_clause = "(id in (" . join(',', @exps_id) . ") or project_id in (" . join(',', @projs_id) . "))"; }
-			}
-			
-			#load the exclude reagent constrains from the query form
-			my $reagent_exclude_ids = param('reagents_exclude');
-			$reagent_exclude_ids =~ s/,/, /;
-			
-			#load the include reagent constraints from the query form
-			my $reagent_ids = param('reagents_include');
-			my @reagent_include_ids = split /,/, $reagent_ids;
-			my %reagent_constraints;
-			foreach my $id (@reagent_include_ids)
-			{
-				#for each possible unit type:
-				foreach my $unit (values %REAGENT_AMT_UNITS)
-				{
-					#get min/max for current reagent id/amount, if exists:
-					my $min_param = "reagent_min_$id" . "_$unit";
-					my $min = param($min_param);
-					if(defined $min)
-					{
-						
-						my $max_param = "reagent_max_$id" . "_$unit";
-						my $max = param($max_param);
-						if($min !~ /[0-9.]+/ || $max !~ /[0-9.]+/ || $min < 0 || $max < 0 || $min > $max)
-						{
-							$err_str = "Please check your search parameters.  Reagent min/max values are invalid.";
-							last;
-						}
-						${$reagent_constraints{$id}{$unit}}[0] = $min;
-						${$reagent_constraints{$id}{$unit}}[1] = $max;
-					}
-				}
-			}
-			
-			#load ph constraint 
-			my $min_ph = param('ph_min');
-			my $max_ph = param('ph_max');
-			if($min_ph !~ /[0-9.]+/ || $max_ph !~ /[0-9.]+/ || $min_ph < 0 || $max_ph < 0 || $min_ph > $max_ph)
-			{ $err_str = "Please check your search parameters.  pH min/max values are invalid."; }
-			
-			#load INCLUDE reagents search type:
-			my $search_type = param('search_type');
-			if (!$search_type) { $search_type = 'and'; }
-			
-			
-			my @lanes_to_display = (); my %reagents_to_display = (); my @users_to_display = (); my @ph_to_display = (); my @exp_proc_files_to_display = ();
-			my @gel_details_files_to_display = (); my @img_tags_to_display = (); my @checks_to_display = (); my $hidden_to_display = "";
-			my $image_map_html = ""; my @over_exp_to_display = (); my @tag_type_to_display = (); my @tag_loc_to_display = ();
-			my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = ();
-			my @exps_to_display = (); my @projects_to_display = ();
-			my $num_to_display = 0; my $max_over = 0;
-			if(!$err_str)
-			{
-				my @lanes; my @experiments; 
-				if ($action eq 'Search')
-				{#public search
-					if($user_id_list)
-					{#if user id (s) selected, first get experiments that match that user (and species, if selected)
-						@experiments = Biochemists_Dream::Experiment -> retrieve_from_sql(
-							qq{ Project_Id IN (SELECT Id FROM Project WHERE User_Id IN ($user_id_list)) AND Species = '$species' } ); 
-					}
-					else
-					{
-						@experiments = Biochemists_Dream::Experiment -> search(Species => $species);
-					}
-				}
-				else
-				{#private search
-					#get exps based on project id and exp id from input, only for the selected species
-					@experiments = Biochemists_Dream::Experiment -> retrieve_from_sql(qq{ $where_clause AND Species = '$species' } ); 
-				}
-				
-				if($#experiments < 0) { $err_str = 'No lanes found.'; }
-				else
-				{
-					#create list of experiment ids
-					my $exp_id_list;
-					foreach (@experiments) { my $id = $_ -> get('Id'); $exp_id_list .= "$id, "; }
-					$exp_id_list =~ s/, $//;
-					
-					if ($action eq 'Search')
-					{#get lanes that come from public gel, match tagged protein and come from experiments selected above (for user/species):
-						@lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
-							qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Public = 1 AND Experiment_Id IN ($exp_id_list)) AND Captured_Protein_Id = $protein } );
-					}
-					else
-					{
-						@lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
-							qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Experiment_Id IN ($exp_id_list)) AND Captured_Protein_Id = $protein } );
-					}
-					if($#lanes < 0) { $err_str = 'No lanes found.'; }
-				}
 	
-				#gather lanes that match ALL include reagents
-				foreach my $lane (@lanes)
-				{
-					#check ph
-					my $ph = $lane -> get('Ph');
-					if($ph < $min_ph || $ph > $max_ph) { next; }
-					
-					my $lane_id = $lane -> get("Id");
-					
-					#check exclude reagents not present for lane
-					if($reagent_exclude_ids)
-					{
-						my @lcs = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql( qq{ Reagent_Id IN ($reagent_exclude_ids) AND Lane_Id = $lane_id } );
-						if($#lcs >= 0) { next; }
-					}
-					
-					#include reagents - both AND/OR cases
-					my $match = 0; my $reagents_found = 0;
-					foreach my $id (@reagent_include_ids)
-					{
-						my $reag_found = 0;
-						foreach my $unit (keys %{$reagent_constraints{$id}})
-						{
-							my @lcs = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql(
-								qq{ Reagent_Id = $id AND Lane_Id = $lane_id AND Amount_Units = '$unit' AND Amount >= ${$reagent_constraints{$id}{$unit}}[0] AND Amount <= ${$reagent_constraints{$id}{$unit}}[1] } );
-							if($#lcs >= 0)
-							{ $reag_found = 1; last; }
-							
-						}
-						if(!$reag_found)
-						{
-							if($search_type eq 'and') { last; } #a reagent not found, exit (must find all reagents)
-						}
-						else
-						{
-							if($search_type eq 'or') { $match = 1; last; } #only need to find one reagent
-							else { $reagents_found++; }
-						}
-						
-					}
-					if($search_type eq 'and' && $reagents_found == scalar(@reagent_include_ids)) { $match = 1; }
-					if($match)
-					{#add this lane to display list, show its reagents, proteins, users, species
-						$num_to_display++;
-						if($num_to_display > $MAX_DISPLAY_LANES) { $max_over = 1; last; }
-						
-						my $lane_order = $lane -> get("Lane_Order");
-						push @lanes_to_display, $lane_id;
-						
-						my @lane_reagents = $lane -> lane_reagents;
-						foreach my $lane_reagent (@lane_reagents)
-						{
-							my $amt = $lane_reagent -> get("Amount");
-							$amt =~ s/0+$//; $amt =~ s/\.$//;
-							my $units = $lane_reagent -> get("Amount_Units");
-							my $reagent = $lane_reagent -> Reagent_Id;
-							my $type = $reagent -> get("Reagent_Type");
-							my $chem = $reagent -> get("Name");
-							if(defined $reagents_to_display{$lane_id}{$type})
-							{
-								$reagents_to_display{$lane_id}{$type} = "$reagents_to_display{$lane_id}{$type}, $amt $units $chem";
-							}
-							else { $reagents_to_display{$lane_id}{$type} = "$amt $units $chem"; }
-						}
-						
-						my $gel = $lane -> Gel_Id;
-						my $gel_id = $gel -> get('Id');
-						my $experiment = $gel -> Experiment_Id;
-						my $project = $experiment -> Project_Id;
-						my $user = $project -> User_Id;
-						my $exp_proc_file = $experiment -> get('Experiment_Procedure_File');
-						my $gel_details_file = $experiment -> get('Gel_Details_File');
-						
-						my $gel_file_id = $gel -> get("File_Id");
-						my $experiment_id = $gel -> get("Experiment_Id");
-						my $user_id = $user -> get('Id');
-						
-						if ($action eq 'Search')
-						{
-							my $fname = $user -> get('First_Name');
-							my $lname = $user -> get('Last_Name');
-							push @users_to_display, "$lname, $fname";
-						}
-						else
-						{
-							push @exps_to_display, $experiment -> Name;
-							push @projects_to_display, $project -> Name;
-						}
-						
-						if ($exp_proc_file)
-						{#should have one since the gel is public!
-							$exp_proc_file = qq!<a href="/copurification/$user_id/Experiment_Procedures/$exp_proc_file" target="blank">$exp_proc_file</a>!;
-						}
-						else { $exp_proc_file = '(none)'; }
-						
-						if ($gel_details_file)
-						#should have one since the gel is public!
-						{
-							$gel_details_file = qq!<a href="/copurification/$user_id/Gel_Details/$gel_details_file" target="blank">$gel_details_file</a>!;
-						}
-						else { $gel_details_file = '(none)'; }
-						
-						push @exp_proc_files_to_display, $exp_proc_file;
-						push @gel_details_files_to_display, $gel_details_file;
-				
-						my $ph = $lane -> get('Ph');
-						$ph =~ s/0+$//; $ph =~ s/\.$//;
-						push @ph_to_display, $ph;
-						
-						my $over_exp = $lane -> get('Over_Expressed');
-						if (defined $over_exp)
-						{ 
-							if ($over_exp)
-							{ push @over_exp_to_display, 'Yes'; }
-							else { push @over_exp_to_display, 'No'; }
-						}
-						else { push @over_exp_to_display, '-'; }
-						
-						my $field = $lane -> get('Tag_Type');
-						if (defined $field) { push @tag_type_to_display, $field; }
-						else { push @tag_type_to_display, '-'; }
-						
-						$field = $lane -> get('Tag_Location');
-						if (defined $field) { push @tag_loc_to_display, $field; }
-						else { push @tag_loc_to_display, '-'; }
-						
-						$field = $lane -> get('Antibody');
-						if (defined $field) { push @antibody_to_display, $field; }
-						else { push @antibody_to_display, '-'; }
-						
-						$field = $lane -> get('Other_Capture');
-						if (defined $field) { push @other_cap_to_display, $field; }
-						else { push @other_cap_to_display, '-'; }
-						
-						$field = $lane -> get('Notes');
-						if (defined $field) { push @notes_to_display, $field; }
-						else { push @notes_to_display, '-'; }
-						
-						my @cal_lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, Quantity_Std_Cal_Lane => 1);
-						my $units = "";
-						if($#cal_lanes >= 0) { $units = $cal_lanes[0] -> get('Quantity_Std_Units'); }
-				
-						my $gel_root = 'gel' . $gel_file_id;
-						my $img_tag = qq!<div name="lane_image"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.png" usemap="#$lane_id"></div>\
-								<div name="norm_lane_image" style="display:none"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.n.png" usemap="#$lane_id"></div>
-								<div name="norm_lane_image2" style="display:none"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nn.png" usemap="#$lane_id"></div>!;
-						push @img_tags_to_display, $img_tag;
-						
-						my $checkbox = qq!<input type='checkbox' name='check_lanes' value='$lane_id' />!;
-						push @checks_to_display, $checkbox;
-						
-						my $hidden = qq!<input type='hidden' name='lane' id='$lane_id' value='on'/>!;
-						$hidden_to_display .= $hidden;
-						
-						#imagemap masses to bands:
-						my @bands = $lane -> bands;
-						$image_map_html .= create_imagemap_html(\@bands, $lane_id, $units);
-					}
+			}
+			elsif($action eq "Login")
+			{#attempt to log in the user
+				my $email = param('email');
+				my $password = param('password');
+	
+				$g_user_id = validate_user($email, $password);
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "g_user_id = $g_user_id\n"; }
+				if($g_user_id)
+				{#login successful
+					#set cookie
+					my @cookies;
+					my $cookie = cookie(-name=>'user_id', -value=>"$g_user_id");
+					push @cookies, $cookie;
+	
+					login_the_user();
+	
+					#go to private view
+					display_frameset(\@cookies, 'PRIVATE');
+				}
+				else
+				{#login unsuccessful, reload login page w/ error message
+					display_public_error_page("Sorry, the login failed.", 1);
 				}
 			}
-			
-			if(!$err_str) 
+			elsif($action eq "LoginPage")
 			{
-				if ($action eq 'Search')
+				if(!$g_user_login)
 				{
-					display_query_results('PUBLIC', $protein_name, $species, \@lanes_to_display, \%reagents_to_display, \@img_tags_to_display,
-							$image_map_html, \@ph_to_display, \@users_to_display, \@exp_proc_files_to_display,
-							\@gel_details_files_to_display, \@checks_to_display, $hidden_to_display,
-							\@over_exp_to_display, \@tag_type_to_display, \@tag_loc_to_display, \@antibody_to_display,
-							\@other_cap_to_display, \@notes_to_display, $max_over); 
+					display_frame2p('LOGIN');
 				}
 				else
 				{
-					display_query_results('PRIVATE', $protein_name, $species, \@lanes_to_display, \%reagents_to_display, \@img_tags_to_display,
-							$image_map_html, \@ph_to_display, \@exps_to_display, \@projects_to_display, \@exp_proc_files_to_display,
-							\@gel_details_files_to_display, \@checks_to_display, $hidden_to_display,
-							\@over_exp_to_display, \@tag_type_to_display, \@tag_loc_to_display, \@antibody_to_display,
-							\@other_cap_to_display, \@notes_to_display, $max_over); 
+					display_frameset('', 'PRIVATE');
 				}
-			}	
-			else
-			{
-				if ($g_user_id)
+			}
+			elsif($action eq "FAQ")
+			{#display the faq page...
+				if(!$g_user_login)
 				{
-					display_private_error_page($err_str);
+					display_frame2p('FAQ');
 				}
 				else
 				{
-					display_public_error_page($err_str);
-				}
+					display_frame2('FAQ');
+				}				
+	
 			}
-		}
-		elsif($action eq "Logout")
-		{
-			if($g_user_login)
-			{
-				#set cookie to 0
-				my @cookies;
-				my $cookie = cookie(-name=>'user_id', -value=>'0');
-				push @cookies, $cookie;
-
-				logout_the_user();
-
-				#display_frameset(\@cookies, 'PUBLIC', 'SEARCH', ); #display public homepage
-				display_frameset(\@cookies, 'PUBLIC'); #display public homepage
-			}
-			else
-			{
-				display_frameset('', 'PUBLIC');
-			}
-		}
-		elsif($action eq "CreateAccount")
-		{
-			if(!$g_user_login)
-			{
-				display_frame2p('CREATE USER');
-			}
-			else
-			{
-				display_frameset('', 'PRIVATE');
-			}
-			
-		}
-		elsif($action eq "Create Account")
-		{
-			if($DEVELOPER_VERSION) { print DEVEL_OUT "In Create User\n"; }
-			if(!$g_user_login)
-			{
-				my $error_str = "";
-				my $email = ""; my $user_dir;
-				local Biochemists_Dream::User -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
-				eval
+			elsif($action eq "HowTo")
+			{#display the howto page...
+				if(!$g_user_login)
 				{
-					#get the user params:
-					my $first_name = param('first_name') || undef;
-					my $last_name = param('last_name');
-					my $institution = param('institution') || undef;
-					my $title = param('title') || undef;
-					my $orcid = param('orcid') || undef;
-					$email = param('email');
-					my $password = param('password');
-
-					#to do ! validate the params in javascript!
-
-					#first check for duplicate email (user already exists):
-					my @users = Biochemists_Dream::User -> search(Email => $email);
-					if($#users < 0)
-					{ #email not found in db, create user
-
-						#encrypt password for storing in the database
-						my $salt = join '', ('.', '/', 0..9, 'A'..'Z', 'a'..'z')[rand 64, rand 64];
-						my $crypt_password = crypt($password, $salt);
-
-						my $new_user = Biochemists_Dream::User -> insert({First_Name => $first_name, Last_Name => $last_name, Title => $title, OrcID => $orcid, Institution => $institution, Email => $email, Password => $crypt_password, Validated => 1, });
-						my $new_user_id = $new_user -> get('Id');
-
-						#to do ! - add user validation by email
-
-						#create the user's folder for experiment data, etc.
-						if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id"))
-						{
-							$user_dir = "$BASE_DIR/$DATA_DIR/$new_user_id";
-							if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id/Experiments"))
-							{
-								if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id/Experiment_Procedures"))
-								{
-									if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id/Gel_Details"))
-									{
-									}
-									else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Gel_Details) - $!"; }
-								}
-								else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Experiment_Procedures) - $!"; }
-							}
-							else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Experiments) - $!"; }
-						}
-						else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id) - $!"; }
-
-					}
-					else { $error_str = " A user with this email already exists."; }
-				}; #end eval block
-				if($@) { $error_str = $@; }
-
-				if($error_str eq "")
-				{
-					display_frame2p('USER CREATED');
-					if($DEVELOPER_VERSION) { print DEVEL_OUT "User created: $email\n"; }
+					display_frame2p('HowTo');
 				}
 				else
-				{ #delete the newly created user from the database, and the user directory
-					Biochemists_Dream::User -> dbi_rollback;
-
-					my $ret_err = "";
-					if($user_dir) { $ret_err = delete_directory($user_dir); }
-					if($ret_err) { $error_str .= ", $ret_err"; }
-
-					display_public_error_page($error_str);
+				{
+					display_frame2('HowTo');
+				}				
+	
+			}
+			elsif($action eq "About")
+			{#display the about page...
+				if(!$g_user_login)
+				{
+					display_frame2p('About');
+				}
+				else
+				{
+					display_frame2('About');
+				}				
+	
+			}
+			elsif($action eq "Contact")
+			{#display the Contact page...
+				if(!$g_user_login)
+				{
+					display_frame2p('Contact');
+				}
+				else
+				{
+					display_frame2('Contact');
+				}				
+	
+			}
+			elsif($action eq "Home")
+			{#display the Contact page...
+				
+				display_frame2p('Home');
+			}
+			elsif($action eq "SearchPublicGels")
+			{
+				if(!$g_user_login)
+				{
+					display_frame2p('SEARCH');
+				}
+				else
+				{
+					display_frameset('', 'PUBLIC', 'PUBLICVIEW SEARCH');
 				}
 			}
-			else
-			{
-				display_frameset('', 'PRIVATE');
-			}
-		}
-		elsif($g_user_login)
-		{
-			if($action eq 'Search My Gels')
-			{#private gel search of logged in user, show query page 1
-				#retrieve projects and experiments that were selected by the user 
-				
-				display_frame2('QUERY', 0, '', '');
-				
-			}
-			elsif($action eq "Choose Reagents User")
-			{#next button from search input page - private search
-				#gather inputs and show amount ranges of selected reagents
-				display_frame2('QUERY2', 0, '', '');
-			}
-			elsif($action eq "Set Ranges User")
+			elsif($action eq "Choose Reagents")
 			{#next button from search input page
 				#gather inputs and show amount ranges of selected reagents
-				display_frame2('QUERY3', 0, '', '');
+				if(!$g_user_login)
+				{
+					display_frame2p('SEARCH 2');
+				}
+				else
+				{
+					display_frame2p('PUBLICVIEW SEARCH 2');
+				}
 				
 			}
-			elsif($action eq "Add Project") 
-			{
-				my $name = param('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
-				my $desc = param('project_description') || undef; #let description column be NULL if user enters no description
-				my $parent_id = param('project_parent_id');
-				if($parent_id == -1) { $parent_id = undef; } #no parent, let it be NULL in the database (root project)
-
-				#add a project with the given name, description, parent_id to the database
-				my $new_project = Biochemists_Dream::Project -> insert({Name => $name, Description => $desc, Project_Parent_Id => $parent_id, User_Id => $g_user_id});
-
-				#clear params...
-				param('project_name', '');
-				param('project_description', '');
-
-				#return to project page or home page if parent_id is -1
-				if($parent_id)
-				{ display_frame2('PROJECT', 1, $parent_id); }
-				else { display_frame2('PROJECT', 1, -1); }
+			elsif($action eq "Set Ranges")
+			{#next button from search input page
+				#gather inputs and show amount ranges of selected reagents
+				if(!$g_user_login)
+				{
+					display_frame2p('SEARCH 3');
+				}
+				else
+				{
+					display_frame2p('PUBLICVIEW SEARCH 3');
+				}
+				
 			}
-			elsif($action eq 'Upload')
-			{
-				#upload MIAPE-AC or GE file to users directory
-				#if file already exists, replace it
-				# *add JS warning on web page for user!! - also check if associated with Exps and warn!?
+			elsif($action eq "Search" || $action eq "Search User")
+			{#perform the public gel search and display results
 				
-				my $err_str = '';
-				my $sub_dir;
-				my $remote_file;
-				my $lw_fh = upload('Experiment_Procedures');
-				if ($lw_fh) { $remote_file = param('Experiment_Procedures'); $sub_dir = 'Experiment_Procedures'; } # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
-				elsif($lw_fh = upload('Gel_Details')) { $remote_file = param('Gel_Details'); $sub_dir = 'Gel_Details'; }
-				else { $err_str = "Error in file upload."; }
+				if ($action eq "Search User" && !$g_user_login)
+				{
+					display_public_error_page("Invalid action for public user. ('Search User').", 1);
+					exit(0);
+				}
 				
-				#check that remote file extension is .txt, if not then return error message
-				my $extension = $remote_file;
-				if ($extension =~ s/^.*\.([^\.]+)$/$1/)
-				{
-					if ($sub_dir eq 'Experiment_Procedures')
-					{
-						if(!$ALLOWED_EXP_PROC_FILE_TYPES{lc $extension})
-						{
-							$err_str = 'File type not supported.';
-						}
-					}
-					elsif($sub_dir eq 'Gel_Details')
-					{
-						if(!$ALLOWED_GEL_DETAILS_FILE_TYPES{lc $extension})
-						{
-							$err_str = 'File type not supported.';
-						}
-						
-					}
-					
-				}
-				else { $err_str = 'File type not supported.'; }
-				
-				if (!$err_str)
-				{
-					#check if local file exists and delete if necessary!
-					#upload the data file
-					my $local_fname = "$BASE_DIR/$DATA_DIR/$g_user_id/$sub_dir/$remote_file";
-					#delete local file if it exists:
-					if (-e $local_fname) { unlink($local_fname); }
-					my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
-					
-					$local_fname =~ s/^(.*)\.[^\.]+$/$1/; #remove extension b/c function takes root of local file name and adds extension of uploaded file
-					$local_fname = lc $local_fname;
-					$err_str = upload_file($remote_file, $io_fh, $local_fname);
-					close($io_fh);
-					if($err_str) { $err_str .= " (file upload)"; }
-				}
-				if($err_str)
-				{
-					display_frame2('PROCEDURES', 0, '', '', "There was an error in uploading '$remote_file': $err_str");
-				}
-				else { display_frame2('PROCEDURES', 0, '', '', "'$remote_file' has been successfully added to your file list."); }
-			}
-			elsif($action eq 'Delete')
-			{
-				#delete projects and experiments that were selected by the user
-				my $parent_id = param('project_parent_id');
-
-				#first, experiments
-				my @ids_to_delete = param('experiment_checkbox');
 				my $err_str = "";
-
-				foreach my $id (@ids_to_delete)
-				{ $err_str .= delete_experiment($id); }
-
-				#next, projects
-				@ids_to_delete = ();
-				@ids_to_delete = param('project_checkbox');
-
-				#sort by id (descending) so that subprojects will be deleted first
-				my @sorted_ids = sort {$b <=> $a} @ids_to_delete;
-
-				foreach my $id (@sorted_ids)
+				#get search parameters:
+				my $species = param('species');
+				my $protein_str = param('protein');
+				
+				my $protein_name = $protein_str;
+				$protein_name =~ s/^([0-9]+) //;
+				my $protein = $1;
+				
+				
+				my $where_clause;
+				my @users; my $user_id_list;
+				if ($action eq "Search")
 				{
-					#delete the projects that were checked (all experiments and other projects in this project will be deleted also)
-					#add javascript to warn the user!
-					$err_str .= delete_project($id);
+					#turn user ids into comma separated lists for sql statment
+					@users = param('user_ids');
+					$user_id_list = "";
+					foreach (@users) { if($_ ne -1) { $user_id_list .= "$_, "; } }
+					$user_id_list =~ s/, $//;
 				}
-
-				if($err_str eq "")
+				else
 				{
-					#return to project page or home page if parent_id is -1
-					if($parent_id) { display_frame2('PROJECT', 1, $parent_id); }
-					else { display_frame2('PROJECT', 1, -1); }
-					#display_frame1();
+					my @projs_id = param('projects_id');
+					my @exps_id = param('exps_id');
+					if (!@exps_id)
+					{ $where_clause = "(project_id in (" . join(',', @projs_id) . "))"; }
+					elsif(!@projs_id)
+					{ $where_clause = "(id in (" . join(',', @exps_id) . "))"; }
+					else
+					{ $where_clause = "(id in (" . join(',', @exps_id) . ") or project_id in (" . join(',', @projs_id) . "))"; }
 				}
-				else{ display_private_error_page($err_str); }
-			}
-			elsif($action eq 'ViewProject') #done frames
-			{
-				my $project_id = param('Id');
-
-				#print out the project details page
-				display_frame2('PROJECT', 0, $project_id);
-
-			}
-			elsif($action eq "Add Experiment")
-			{
-				my $err_str = ""; my $experiment_dir = "";
-				my $project_id = param('project_parent_id');
-				my $id; my $new_experiment; #the new experiment and id
-				my @new_proteins;
-				#local Biochemists_Dream::Experiment -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
-				eval
+				
+				#load the exclude reagent constrains from the query form
+				my $reagent_exclude_ids = param('reagents_exclude');
+				$reagent_exclude_ids =~ s/,/, /;
+				
+				#load the include reagent constraints from the query form
+				my $reagent_ids = param('reagents_include');
+				my @reagent_include_ids = split /,/, $reagent_ids;
+				my %reagent_constraints;
+				foreach my $id (@reagent_include_ids)
 				{
-					my $name = param('experiment_name') || '?'; #error case if no name given, must have project name...
-					my $species = param('experiment_species');
-					my $desc = param('experiment_description') || undef; #let description column be NULL if user enters no description
-					my $proc_file = param('experiment_procedure');
-					if ($proc_file eq '(none selected)') { $proc_file = undef; } else { $proc_file = lc($proc_file); }
-					my $gel_file = param('gel_details');
-					if ($gel_file eq '(none selected)') { $gel_file = undef; } else { $gel_file = lc($gel_file); }
-					
-					#add an experiment with the given name, description, project_id to the database
-					$new_experiment = Biochemists_Dream::Experiment -> insert({Name => $name, Description => $desc, Species => $species, Project_Id => $project_id, Experiment_Procedure_File => $proc_file, Gel_Details_File => $gel_file});
-					$id = $new_experiment -> get("Id");
-					
-					if($DEVELOPER_VERSION) { print DEVEL_OUT "Experiment created, id = $id\n"; }
-					
-					my $lw_fh = upload('experiment_data_file'); # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
-					my $remote_file = param('experiment_data_file');
-					if (defined $lw_fh)
+					#for each possible unit type:
+					foreach my $unit (values %REAGENT_AMT_UNITS)
 					{
-						#upload the data file, create a directory for this experiment, and save the file there
-						
-						
-						$experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$id"; #the dir will be named w/ the primary key id
-						if(mkdir($experiment_dir))
+						#get min/max for current reagent id/amount, if exists:
+						my $min_param = "reagent_min_$id" . "_$unit";
+						my $min = param($min_param);
+						if(defined $min)
 						{
-							my $local_fname = "$experiment_dir/$EXP_DATA_FILE_NAME_ROOT"; #param('experiment_data_file');
-							my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
-							my $ext;
 							
-							if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload file: $remote_file, $io_fh, $local_fname, $ext.\n"; }
-							
-							$err_str = upload_file($remote_file, $io_fh, $local_fname, $ext);
-							
-							if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
-							
-							close($io_fh);
-							if($err_str) { $err_str .= " (file upload)"; }
-							if (lc $ext ne 'txt')
+							my $max_param = "reagent_max_$id" . "_$unit";
+							my $max = param($max_param);
+							if($min !~ /[0-9.]+/ || $max !~ /[0-9.]+/ || $min < 0 || $max < 0 || $min > $max)
 							{
-								$err_str .= "Sample Descriptions file must be have .txt extension."; 
+								$err_str = "Please check your search parameters.  Reagent min/max values are invalid.";
+								last;
+							}
+							${$reagent_constraints{$id}{$unit}}[0] = $min;
+							${$reagent_constraints{$id}{$unit}}[1] = $max;
+						}
+					}
+				}
+				
+				#load ph constraint 
+				my $min_ph = param('ph_min');
+				my $max_ph = param('ph_max');
+				if($min_ph !~ /[0-9.]+/ || $max_ph !~ /[0-9.]+/ || $min_ph < 0 || $max_ph < 0 || $min_ph > $max_ph)
+				{ $err_str = "Please check your search parameters.  pH min/max values are invalid."; }
+				
+				#load INCLUDE reagents search type:
+				my $search_type = param('search_type');
+				if (!$search_type) { $search_type = 'and'; }
+				
+				
+				my @lanes_to_display = (); my %reagents_to_display = (); my @users_to_display = (); my @ph_to_display = (); my @exp_proc_files_to_display = ();
+				my @gel_details_files_to_display = (); my @img_tags_to_display = (); my @checks_to_display = (); my $hidden_to_display = "";
+				my $image_map_html = ""; my @over_exp_to_display = (); my @tag_type_to_display = (); my @tag_loc_to_display = ();
+				my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = ();
+				my @exps_to_display = (); my @projects_to_display = ();
+				my $num_to_display = 0; my $max_over = 0;
+				if(!$err_str)
+				{
+					my @lanes; my @experiments; 
+					if ($action eq 'Search')
+					{#public search
+						if($user_id_list)
+						{#if user id (s) selected, first get experiments that match that user (and species, if selected)
+							@experiments = Biochemists_Dream::Experiment -> retrieve_from_sql(
+								qq{ Project_Id IN (SELECT Id FROM Project WHERE User_Id IN ($user_id_list)) AND Species = '$species' } ); 
+						}
+						else
+						{
+							@experiments = Biochemists_Dream::Experiment -> search(Species => $species);
+						}
+					}
+					else
+					{#private search
+						#get exps based on project id and exp id from input, only for the selected species
+						@experiments = Biochemists_Dream::Experiment -> retrieve_from_sql(qq{ $where_clause AND Species = '$species' } ); 
+					}
+					
+					if($#experiments < 0) { $err_str = 'No lanes found.'; }
+					else
+					{
+						#create list of experiment ids
+						my $exp_id_list;
+						foreach (@experiments) { my $id = $_ -> get('Id'); $exp_id_list .= "$id, "; }
+						$exp_id_list =~ s/, $//;
+						
+						if ($action eq 'Search')
+						{#get lanes that come from public gel, match tagged protein and come from experiments selected above (for user/species):
+							@lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
+								qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Public = 1 AND Experiment_Id IN ($exp_id_list)) AND Captured_Protein_Id = $protein } );
+						}
+						else
+						{
+							@lanes = Biochemists_Dream::Lane -> retrieve_from_sql(
+								qq{ Gel_Id IN (SELECT Id FROM Gel WHERE Experiment_Id IN ($exp_id_list)) AND Captured_Protein_Id = $protein } );
+						}
+						if($#lanes < 0) { $err_str = 'No lanes found.'; }
+					}
+		
+					#gather lanes that match ALL include reagents
+					foreach my $lane (@lanes)
+					{
+						#check ph
+						my $ph = $lane -> get('Ph');
+						if($ph < $min_ph || $ph > $max_ph) { next; }
+						
+						my $lane_id = $lane -> get("Id");
+						
+						#check exclude reagents not present for lane
+						if($reagent_exclude_ids)
+						{
+							my @lcs = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql( qq{ Reagent_Id IN ($reagent_exclude_ids) AND Lane_Id = $lane_id } );
+							if($#lcs >= 0) { next; }
+						}
+						
+						#include reagents - both AND/OR cases
+						my $match = 0; my $reagents_found = 0;
+						foreach my $id (@reagent_include_ids)
+						{
+							my $reag_found = 0;
+							foreach my $unit (keys %{$reagent_constraints{$id}})
+							{
+								my @lcs = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql(
+									qq{ Reagent_Id = $id AND Lane_Id = $lane_id AND Amount_Units = '$unit' AND Amount >= ${$reagent_constraints{$id}{$unit}}[0] AND Amount <= ${$reagent_constraints{$id}{$unit}}[1] } );
+								if($#lcs >= 0)
+								{ $reag_found = 1; last; }
+								
+							}
+							if(!$reag_found)
+							{
+								if($search_type eq 'and') { last; } #a reagent not found, exit (must find all reagents)
+							}
+							else
+							{
+								if($search_type eq 'or') { $match = 1; last; } #only need to find one reagent
+								else { $reagents_found++; }
 							}
 							
 						}
-						else { $err_str = "Could not create directory for new experiment ($experiment_dir) - $!"; }
-					}
-					else { $err_str = "Could not upload Sample Descriptions file"; }
-
-					#upload gel files and save to experiment directory
-					my %gel_fname_map;
-					my %gel_fname_ext_map;
-					if($err_str eq "")
-					{
-						my @remote_files = param('gel_data_file');
-						if (@remote_files)
-						{
-							my $remote_file; my $i = 1;
-							foreach $remote_file (@remote_files)
+						if($search_type eq 'and' && $reagents_found == scalar(@reagent_include_ids)) { $match = 1; }
+						if($match)
+						{#add this lane to display list, show its reagents, proteins, users, species
+							$num_to_display++;
+							if($num_to_display > $MAX_DISPLAY_LANES) { $max_over = 1; last; }
+							
+							my $lane_order = $lane -> get("Lane_Order");
+							push @lanes_to_display, $lane_id;
+							
+							my @lane_reagents = $lane -> lane_reagents;
+							foreach my $lane_reagent (@lane_reagents)
 							{
-								if ($remote_file)
+								my $amt = $lane_reagent -> get("Amount");
+								$amt =~ s/0+$//; $amt =~ s/\.$//;
+								my $units = $lane_reagent -> get("Amount_Units");
+								my $reagent = $lane_reagent -> Reagent_Id;
+								my $type = $reagent -> get("Reagent_Type");
+								my $chem = $reagent -> get("Name");
+								if(defined $reagents_to_display{$lane_id}{$type})
 								{
-									my $local_fname = "$experiment_dir/$GEL_DATA_FILE_NAME_ROOT" . "$i";
-									my $ext;
-									my $remote_file_name = $remote_file;
-									if($err_str = upload_file($remote_file_name, $remote_file, $local_fname, $ext))
-									{ $err_str .= " (gel file upload)"; last; }
-									close($remote_file);
-										
-									if(!defined $ALLOWED_GEL_FILE_TYPES{lc $ext})
-									{
-										my $ext_list = join ', ', keys %ALLOWED_GEL_FILE_TYPES;
-										$err_str = "Unrecognized file type for gel file $remote_files[$i-1]. The allowed extensions are: $ext_list.";
-										last;
-									}
-									my $remote_fname_root = $remote_file_name;
-									$remote_fname_root =~ s/\.\w\w\w$//; #remove extension
-									$gel_fname_map{lc $remote_fname_root} = $i;
-									$gel_fname_ext_map{lc $remote_fname_root} = $ext;
-									$i++;
+									$reagents_to_display{$lane_id}{$type} = "$reagents_to_display{$lane_id}{$type}, $amt $units $chem";
 								}
-							}
-							if ($i == 1)
-							{
-								$err_str = "No gel files uploaded";
+								else { $reagents_to_display{$lane_id}{$type} = "$amt $units $chem"; }
 							}
 							
+							my $gel = $lane -> Gel_Id;
+							my $gel_id = $gel -> get('Id');
+							my $experiment = $gel -> Experiment_Id;
+							my $project = $experiment -> Project_Id;
+							my $user = $project -> User_Id;
+							my $exp_proc_file = $experiment -> get('Experiment_Procedure_File');
+							my $gel_details_file = $experiment -> get('Gel_Details_File');
+							
+							my $gel_file_id = $gel -> get("File_Id");
+							my $experiment_id = $gel -> get("Experiment_Id");
+							my $user_id = $user -> get('Id');
+							
+							if ($action eq 'Search')
+							{
+								my $fname = $user -> get('First_Name');
+								my $lname = $user -> get('Last_Name');
+								push @users_to_display, "$lname, $fname";
+							}
+							else
+							{
+								push @exps_to_display, $experiment -> Name;
+								push @projects_to_display, $project -> Name;
+							}
+							
+							if ($exp_proc_file)
+							{#should have one since the gel is public!
+								$exp_proc_file = qq!<a href="/copurification/$user_id/Experiment_Procedures/$exp_proc_file" target="blank">$exp_proc_file</a>!;
+							}
+							else { $exp_proc_file = '(none)'; }
+							
+							if ($gel_details_file)
+							#should have one since the gel is public!
+							{
+								$gel_details_file = qq!<a href="/copurification/$user_id/Gel_Details/$gel_details_file" target="blank">$gel_details_file</a>!;
+							}
+							else { $gel_details_file = '(none)'; }
+							
+							push @exp_proc_files_to_display, $exp_proc_file;
+							push @gel_details_files_to_display, $gel_details_file;
+					
+							my $ph = $lane -> get('Ph');
+							$ph =~ s/0+$//; $ph =~ s/\.$//;
+							push @ph_to_display, $ph;
+							
+							my $over_exp = $lane -> get('Over_Expressed');
+							if (defined $over_exp)
+							{ 
+								if ($over_exp)
+								{ push @over_exp_to_display, 'Yes'; }
+								else { push @over_exp_to_display, 'No'; }
+							}
+							else { push @over_exp_to_display, '-'; }
+							
+							my $field = $lane -> get('Tag_Type');
+							if (defined $field) { push @tag_type_to_display, $field; }
+							else { push @tag_type_to_display, '-'; }
+							
+							$field = $lane -> get('Tag_Location');
+							if (defined $field) { push @tag_loc_to_display, $field; }
+							else { push @tag_loc_to_display, '-'; }
+							
+							$field = $lane -> get('Antibody');
+							if (defined $field) { push @antibody_to_display, $field; }
+							else { push @antibody_to_display, '-'; }
+							
+							$field = $lane -> get('Other_Capture');
+							if (defined $field) { push @other_cap_to_display, $field; }
+							else { push @other_cap_to_display, '-'; }
+							
+							$field = $lane -> get('Notes');
+							if (defined $field) { push @notes_to_display, $field; }
+							else { push @notes_to_display, '-'; }
+							
+							my @cal_lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, Quantity_Std_Cal_Lane => 1);
+							my $units = "";
+							if($#cal_lanes >= 0) { $units = $cal_lanes[0] -> get('Quantity_Std_Units'); }
+					
+							my $gel_root = 'gel' . $gel_file_id;
+							my $img_tag = qq!<div name="lane_image"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.png" usemap="#$lane_id"></div>\
+									<div name="norm_lane_image" style="display:none"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.n.png" usemap="#$lane_id"></div>
+									<div name="norm_lane_image2" style="display:none"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nn.png" usemap="#$lane_id"></div>!;
+							push @img_tags_to_display, $img_tag;
+							
+							my $checkbox = qq!<input type='checkbox' name='check_lanes' value='$lane_id' />!;
+							push @checks_to_display, $checkbox;
+							
+							my $hidden = qq!<input type='hidden' name='lane' id='$lane_id' value='on'/>!;
+							$hidden_to_display .= $hidden;
+							
+							#imagemap masses to bands:
+							my @bands = $lane -> bands;
+							$image_map_html .= create_imagemap_html(\@bands, $lane_id, $units);
 						}
-						else { $err_str = "No gel files uploaded";  }
 					}
+				}
 				
-					if($err_str eq "")
-					{
-						$err_str = load_experiment_data_file($id, $species, \%gel_fname_map, \%gel_fname_ext_map); 
-					}
-					if($err_str eq "")
-					{
-						$err_str = process_experiment_gels($id); #forks and returns so we can get back to user
-					}
-				}; #end eval block
-				if($@) { $err_str = $@; }
-				
-				#clear params...
-				param('experiment_name', '');
-				param('experiment_description', '');
-				param('experiment_species', '');
-
-				if($err_str eq "")
+				if(!$err_str) 
 				{
-					#show experiment page
-					display_frame2('EXPERIMENT', 1, $id);
+					if ($action eq 'Search')
+					{
+						display_query_results('PUBLIC', $protein_name, $species, \@lanes_to_display, \%reagents_to_display, \@img_tags_to_display,
+								$image_map_html, \@ph_to_display, \@users_to_display, \@exp_proc_files_to_display,
+								\@gel_details_files_to_display, \@checks_to_display, $hidden_to_display,
+								\@over_exp_to_display, \@tag_type_to_display, \@tag_loc_to_display, \@antibody_to_display,
+								\@other_cap_to_display, \@notes_to_display, $max_over); 
+					}
+					else
+					{
+						display_query_results('PRIVATE', $protein_name, $species, \@lanes_to_display, \%reagents_to_display, \@img_tags_to_display,
+								$image_map_html, \@ph_to_display, \@exps_to_display, \@projects_to_display, \@exp_proc_files_to_display,
+								\@gel_details_files_to_display, \@checks_to_display, $hidden_to_display,
+								\@over_exp_to_display, \@tag_type_to_display, \@tag_loc_to_display, \@antibody_to_display,
+								\@other_cap_to_display, \@notes_to_display, $max_over); 
+					}
+				}	
+				else
+				{
+					if ($g_user_id)
+					{
+						display_private_error_page($err_str);
+					}
+					else
+					{
+						display_public_error_page($err_str);
+					}
+				}
+			}
+			elsif($action eq "Logout")
+			{
+				if($g_user_login)
+				{
+					#set cookie to 0
+					my @cookies;
+					my $cookie = cookie(-name=>'user_id', -value=>'0');
+					push @cookies, $cookie;
+	
+					logout_the_user();
+	
+					#display_frameset(\@cookies, 'PUBLIC', 'SEARCH', ); #display public homepage
+					display_frameset(\@cookies, 'PUBLIC', 'Home'); #display public homepage
 				}
 				else
-				{ #delete the experiment directory
-					if($new_experiment) { $new_experiment -> delete(); } #change to this method in user creation!
+				{
+					display_frameset('', 'PUBLIC', 'Home');
+				}
+			}
+			elsif($action eq "CreateAccount")
+			{
+				if(!$g_user_login)
+				{
+					display_frame2p('CREATE USER');
+				}
+				else
+				{
+					display_frameset('', 'PRIVATE');
+				}
+				
+			}
+			elsif($action eq "Create Account")
+			{
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "In Create User\n"; }
+				if(!$g_user_login)
+				{
+					my $error_str = "";
+					my $email = ""; my $user_dir;
+					local Biochemists_Dream::User -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
+					eval
+					{
+						#get the user params:
+						my $first_name = param('first_name') || undef;
+						my $last_name = param('last_name');
+						my $institution = param('institution') || undef;
+						my $title = param('title') || undef;
+						my $orcid = param('orcid') || undef;
+						$email = param('email');
+						my $password = param('password');
+	
+						#to do ! validate the params in javascript!
+	
+						#first check for duplicate email (user already exists):
+						my @users = Biochemists_Dream::User -> search(Email => $email);
+						if($#users < 0)
+						{ #email not found in db, create user
+	
+							#encrypt password for storing in the database
+							my $salt = join '', ('.', '/', 0..9, 'A'..'Z', 'a'..'z')[rand 64, rand 64];
+							my $crypt_password = crypt($password, $salt);
+	
+							my $new_user = Biochemists_Dream::User -> insert({First_Name => $first_name, Last_Name => $last_name, Title => $title, OrcID => $orcid, Institution => $institution, Email => $email, Password => $crypt_password, Validated => 1, });
+							my $new_user_id = $new_user -> get('Id');
+	
+							#to do ! - add user validation by email
+	
+							#create the user's folder for experiment data, etc.
+							if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id"))
+							{
+								$user_dir = "$BASE_DIR/$DATA_DIR/$new_user_id";
+								if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id/Experiments"))
+								{
+									if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id/Experiment_Procedures"))
+									{
+										if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id/Gel_Details"))
+										{
+										}
+										else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Gel_Details) - $!"; }
+									}
+									else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Experiment_Procedures) - $!"; }
+								}
+								else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Experiments) - $!"; }
+							}
+							else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id) - $!"; }
+	
+						}
+						else { $error_str = " A user with this email already exists."; }
+					}; #end eval block
+					if($@) { $error_str = $@; }
+	
+					if($error_str eq "")
+					{
+						display_frame2p('USER CREATED');
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "User created: $email\n"; }
+					}
+					else
+					{ #delete the newly created user from the database, and the user directory
+						Biochemists_Dream::User -> dbi_rollback;
+	
+						my $ret_err = "";
+						if($user_dir) { $ret_err = delete_directory($user_dir); }
+						if($ret_err) { $error_str .= ", $ret_err"; }
+	
+						display_public_error_page($error_str);
+					}
+				}
+				else
+				{
+					display_frameset('', 'PRIVATE');
+				}
+			}
+			elsif($g_user_login)
+			{
+				if($action eq 'Search My Gels')
+				{#private gel search of logged in user, show query page 1
+					#retrieve projects and experiments that were selected by the user 
 					
-					my $ret_err = "";
-					if($experiment_dir) { $ret_err = delete_directory($experiment_dir); }
-					if($ret_err) { $err_str .= "<br>$ret_err<br>"; }
-
-					display_private_error_page($err_str);
-				}
-			}
-			elsif($action eq 'ViewExperiment') #done frames
-			{
-				my $exp_id = param('Id');
-
-				#print out the experiment details page:
-				display_frame2('EXPERIMENT', 0, $exp_id);
-
-			}
-			elsif($action eq 'Make Public')
-			{
-				#get the gel id's to make public
-				my @ids = param('gels_public');
-				my $exp_id = param('experiment_id');
-
-				foreach (@ids)
-				{
-					my $gel = Biochemists_Dream::Gel -> retrieve($_);
-					$gel -> set('Public' => 1);
-					$gel -> update();
-				}
-				display_frame2('EXPERIMENT', 0, $exp_id, 0);
-			}
-			elsif($action eq 'MyProcedures')
-			{
-				display_frame2('PROCEDURES');
-			}
-			#########################################################################################
-			elsif($action eq 'View / Edit')
-			{
-				my $page_type = param('page_type');
-				if($page_type eq 'procedures')
-				{
-					my $proc_id = param('procedure_id');
-					if($DEVELOPER_VERSION) { print DEVEL_OUT "proc_id in View/Edit: $proc_id\n"; }
-					#print out the procedures page w/ edit
-					display_frame2('PROCEDURES', 0, $proc_id, 1);
-				}
-			}
-			elsif($action eq 'Create Procedure')
-			{
-				my $new_name = param('name');
-				my $new_file_contents = param('file_contents');
-				my $new_proc_id;
-
-				my $error_str = "";
-				local Biochemists_Dream::Experiment_Procedure -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
-				eval
-				{
-					my $new_exp_proc = Biochemists_Dream::Experiment_Procedure -> insert({Name => $new_name, User_Id => $g_user_id, });
-					my $new_proc_id = $new_exp_proc -> get('Id');
-
-					#open the file and save contents:
-					if(open(SOP_FILE, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/$new_proc_id.txt"))
-					{
-						print SOP_FILE $new_file_contents;
-						close(SOP_FILE);
-					}
-					else { $error_str = "Could not create Procedure file ($new_proc_id)"; }
-
-				}; #end eval block
-				if($@) { $error_str = $@; }
-
-				if($error_str eq "")
-				{
-					display_frame2('PROCEDURES_CREATED');
-				}
-				else
-				{ #delete the newly created user from the database, and the user directory
-					Biochemists_Dream::Experiment_Procedure -> dbi_rollback;
-
-					display_private_error_page($error_str);
-				}
-			}
-			##########################################################################################################
-			## Edit projects/experiments/users in the DB ##
-			elsif($action eq 'Edit')
-			{
-				my $page_type = param('page_type');
-				if($page_type eq 'project')
-				{
-					my $project_id = param('project_parent_id');
-
-					#print out the project details page w/ edit
-					display_frame2('PROJECT', 0, $project_id, 1);
-				}
-				elsif($page_type eq 'experiment')
-				{
-					my $exp_id = param('experiment_id');
-
-					#print out the experiemnt details page w/ edit
-					display_frame2('EXPERIMENT', 0, $exp_id, 1);
-				}
-				elsif($page_type eq 'user')
-				{
-					display_frame2('USER');
-				}
-
-			}
-			elsif($action eq 'DeleteFile')
-			{
-				#delete the file but first check if it is associated with any Projects/Experiments
-				#if it is then return message saying it cannot be deleted...
-				
-				my $sub_dir = param('SubDir');
-				my $file_name = param('File');
-				$file_name = lc($file_name);
-				
-				#load experiments for this user:
-				#use SQL to get any Exp's with the associated file name for that user
-				#connect to data source for getting min/max
-				my ($data_source, $db_name, $user, $password) = getConfig();
-				my $dbh = DBI->connect($data_source, $user, $password, { RaiseError => 1, AutoCommit => 0 });
-				my @cols = undef;
-				if ($sub_dir eq 'Experiment_Procedures')
-				{
-					@cols = $dbh -> selectrow_array("SELECT Count(Id) FROM Experiment WHERE Project_Id IN 
-							(SELECT Project_Id FROM Project WHERE User_Id = $g_user_id) AND 
-							Experiment_Procedure_File = '$file_name';");
+					display_frame2('QUERY', 0, '', '');
 					
 				}
-				elsif($sub_dir eq 'Gel_Details')
-				{#returns $rv == 1 ***
-					@cols = $dbh -> selectrow_array("SELECT Id FROM Experiment WHERE Project_Id IN 
-							(SELECT Project_Id FROM Project WHERE User_Id = $g_user_id) AND 
-							Gel_Details_File = '$file_name';");
+				elsif($action eq "Choose Reagents User")
+				{#next button from search input page - private search
+					#gather inputs and show amount ranges of selected reagents
+					display_frame2('QUERY2', 0, '', '');
 				}
-				
-				if (@cols && $cols[0] > 0)
-				{
-					#file is connected to experiments, can't delete!
-					display_frame2('PROCEDURES', 0, '', '', "The file '$file_name' is associated with $cols[0] Experiment(s). First remove the file by editing the Experiment(s), then delete the file.");
+				elsif($action eq "Set Ranges User")
+				{#next button from search input page
+					#gather inputs and show amount ranges of selected reagents
+					display_frame2('QUERY3', 0, '', '');
+					
 				}
-				else
+				elsif($action eq "Add Project") 
 				{
-					#delete file on file system
-					unlink "$BASE_DIR/$DATA_DIR/$g_user_id/$sub_dir/$file_name";
-					display_frame2('PROCEDURES', 0, '', '', "'$file_name' has been successfully deleted from your file list.");
-				}
-				
-			}
-			elsif($action eq 'Cancel')
-			{
-				my $page_type = param('page_type');
-				if($page_type eq 'project')
-				{
-					my $project_id = param('project_parent_id');
-
-					#print out the project details page
-					display_frame2('PROJECT', 0, $project_id);
-				}
-				elsif($page_type eq 'experiment')
-				{
-					my $exp_id = param('experiment_id');
-
-					#print out the experiemnt details page w/ edit
-					display_frame2('EXPERIMENT', 0, $exp_id);
-				}
-				elsif($page_type eq 'user')
-				{
-					display_frame2('PROJECT', 0, -1);
-				}
-				# elsif($page_type eq 'procedures')
-				# {
-					# display_frame2('PROCEDURES');
-				# }
-			}
-			elsif($action eq 'Save Changes')
-			{
-				my $page_type = param('page_type');
-				if($page_type eq 'project')
-				{
-					my $project_id = param('project_parent_id');
-					my $new_name = param('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
-					my $new_description = param('project_description') || undef; #let description column be NULL if user enters no description
-
-					#save the changes to the database...
-					my $project = Biochemists_Dream::Project -> retrieve($project_id);
-					$project -> set('Name' => $new_name, 'Description' => $new_description);
-					$project -> update(); #save to db
-
+					my $name = param('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
+					my $desc = param('project_description') || undef; #let description column be NULL if user enters no description
+					my $parent_id = param('project_parent_id');
+					if($parent_id == -1) { $parent_id = undef; } #no parent, let it be NULL in the database (root project)
+	
+					#add a project with the given name, description, parent_id to the database
+					my $new_project = Biochemists_Dream::Project -> insert({Name => $name, Description => $desc, Project_Parent_Id => $parent_id, User_Id => $g_user_id});
+	
+					#clear params...
 					param('project_name', '');
 					param('project_description', '');
-
-					#print out the project details page
-					display_frame2('PROJECT', 1, $project_id);
+	
+					#return to project page or home page if parent_id is -1
+					if($parent_id)
+					{ display_frame2('PROJECT', 1, $parent_id); }
+					else { display_frame2('PROJECT', 1, -1); }
 				}
-				elsif($page_type eq 'experiment')
+				elsif($action eq 'Upload')
 				{
-					my $exp_id = param('experiment_id');
-					my $new_name = param('experiment_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
-					my $new_description = param('experiment_description') || undef; #let description column be NULL if user enters no description
-					#my $new_species = param('experiment_species');
-					my $new_proc_file = param('experiment_procedure');
-					if ($new_proc_file eq '(none selected)') { $new_proc_file = undef; } else { $new_proc_file = lc($new_proc_file); }
-					my $new_gel_file = param('gel_details');
-					if ($new_gel_file eq '(none selected)') { $new_gel_file = undef; } else { $new_gel_file = lc($new_gel_file); }
-
-					#save the changes to the database...
-					my $experiment = Biochemists_Dream::Experiment -> retrieve($exp_id);
-					$experiment -> set('Name' => $new_name, 'Description' => $new_description, 'Experiment_Procedure_File' => $new_proc_file, 'Gel_Details_File' => $new_gel_file);
-					$experiment -> update(); #save to db
-
-					#print out the project details page
-					display_frame2('EXPERIMENT', 1, $exp_id);
-				}
-				elsif($page_type eq 'user')
-				{
-					my $new_fname = param('first_name');
-					my $new_lname = param('last_name');
-					my $new_orcid = param('orcid');
-					my $new_title = param('title');
-					my $new_inst = param('institution');
-					my $new_email = param('email');
-					my $new_pwd = param('password');
-					if($new_pwd eq "    ") { $new_pwd = 0; }
-
-					if($new_pwd)
+					#upload MIAPE-AC or GE file to users directory
+					#if file already exists, replace it
+					# *add JS warning on web page for user!! - also check if associated with Exps and warn!?
+					
+					my $err_str = '';
+					my $sub_dir;
+					my $remote_file;
+					my $lw_fh = upload('Experiment_Procedures');
+					if ($lw_fh) { $remote_file = param('Experiment_Procedures'); $sub_dir = 'Experiment_Procedures'; } # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
+					elsif($lw_fh = upload('Gel_Details')) { $remote_file = param('Gel_Details'); $sub_dir = 'Gel_Details'; }
+					else { $err_str = "Error in file upload."; }
+					
+					#check that remote file extension is .txt, if not then return error message
+					my $extension = $remote_file;
+					if ($extension =~ s/^.*\.([^\.]+)$/$1/)
 					{
-						my $salt = join '', ('.', '/', 0 .. 9, 'A' .. 'Z', 'a' .. 'z')[rand 64, rand 64];
-						my $crypt_pwd = crypt($new_pwd, $salt);
-						$g_the_user -> set('First_Name' => $new_fname, 'Last_Name' => $new_lname, 'OrcID' => $new_orcid, 'Title' => $new_title, 'Institution' => $new_inst, 'Email' => $new_email, 'Password' => $crypt_pwd);
+						if ($sub_dir eq 'Experiment_Procedures')
+						{
+							if(!$ALLOWED_EXP_PROC_FILE_TYPES{lc $extension})
+							{
+								$err_str = 'File type not supported.';
+							}
+						}
+						elsif($sub_dir eq 'Gel_Details')
+						{
+							if(!$ALLOWED_GEL_DETAILS_FILE_TYPES{lc $extension})
+							{
+								$err_str = 'File type not supported.';
+							}
+							
+						}
+						
 					}
-					else { $g_the_user -> set('First_Name' => $new_fname, 'Last_Name' => $new_lname, 'OrcID' => $new_orcid, 'Title' => $new_title, 'Institution' => $new_inst, 'Email' => $new_email); }
-
-					$g_the_user -> update(); #save to db
-
-					display_frame2('USER UPDATED');
+					else { $err_str = 'File type not supported.'; }
+					
+					if (!$err_str)
+					{
+						#check if local file exists and delete if necessary!
+						#upload the data file
+						my $local_fname = "$BASE_DIR/$DATA_DIR/$g_user_id/$sub_dir/$remote_file";
+						#delete local file if it exists:
+						if (-e $local_fname) { unlink($local_fname); }
+						my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
+						
+						$local_fname =~ s/^(.*)\.[^\.]+$/$1/; #remove extension b/c function takes root of local file name and adds extension of uploaded file
+						$local_fname = lc $local_fname;
+						$err_str = upload_file($remote_file, $io_fh, $local_fname);
+						close($io_fh);
+						if($err_str) { $err_str .= " (file upload)"; }
+					}
+					if($err_str)
+					{
+						display_frame2('PROCEDURES', 0, '', '', "There was an error in uploading '$remote_file': $err_str");
+					}
+					else { display_frame2('PROCEDURES', 0, '', '', "'$remote_file' has been successfully added to your file list."); }
 				}
-				elsif($page_type eq 'procedures')
+				elsif($action eq 'Delete')
+				{
+					#delete projects and experiments that were selected by the user
+					my $parent_id = param('project_parent_id');
+	
+					#first, experiments
+					my @ids_to_delete = param('experiment_checkbox');
+					my $err_str = "";
+	
+					foreach my $id (@ids_to_delete)
+					{
+						#check if exp is owned by current user (to avoid deleting of shared projects)
+						
+						$err_str .= delete_experiment($id);
+					}
+	
+					#next, projects
+					@ids_to_delete = ();
+					@ids_to_delete = param('project_checkbox');
+	
+					#sort by id (descending) so that subprojects will be deleted first
+					my @sorted_ids = sort {$b <=> $a} @ids_to_delete;
+	
+					foreach my $id (@sorted_ids)
+					{
+						#delete the projects that were checked (all experiments and other projects in this project will be deleted also)
+						#add javascript to warn the user!
+						$err_str .= delete_project($id);
+					}
+	
+					if($err_str eq "")
+					{
+						#return to project page or home page if parent_id is -1
+						if($parent_id) { display_frame2('PROJECT', 1, $parent_id); }
+						else { display_frame2('PROJECT', 1, -1); }
+						#display_frame1();
+					}
+					else{ display_private_error_page($err_str); }
+				}
+				elsif($action eq 'ViewProject') #done frames
+				{
+					my $project_id = param('Id');
+	
+					#print out the project details page
+					display_frame2('PROJECT', 0, $project_id);
+	
+				}
+				elsif($action eq "Add Experiment")
+				{
+					my $err_str = ""; my $experiment_dir = "";
+					my $project_id = param('project_parent_id');
+					my $id; my $new_experiment; #the new experiment and id
+					my @new_proteins;
+					#local Biochemists_Dream::Experiment -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
+					eval
+					{
+						my $name = param('experiment_name') || '?'; #error case if no name given, must have project name...
+						my $species = param('experiment_species');
+						my $desc = param('experiment_description') || undef; #let description column be NULL if user enters no description
+						my $proc_file = param('experiment_procedure');
+						if ($proc_file eq '(none selected)') { $proc_file = undef; } else { $proc_file = lc($proc_file); }
+						my $gel_file = param('gel_details');
+						if ($gel_file eq '(none selected)') { $gel_file = undef; } else { $gel_file = lc($gel_file); }
+						
+						#add an experiment with the given name, description, project_id to the database
+						$new_experiment = Biochemists_Dream::Experiment -> insert({Name => $name, Description => $desc, Species => $species, Project_Id => $project_id, Experiment_Procedure_File => $proc_file, Gel_Details_File => $gel_file});
+						$id = $new_experiment -> get("Id");
+						
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "Experiment created, id = $id\n"; }
+						
+						my $lw_fh = upload('experiment_data_file'); # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
+						my $remote_file = param('experiment_data_file');
+						if (defined $lw_fh)
+						{
+							#upload the data file, create a directory for this experiment, and save the file there
+							
+							
+							$experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$id"; #the dir will be named w/ the primary key id
+							if(mkdir($experiment_dir))
+							{
+								my $local_fname = "$experiment_dir/$EXP_DATA_FILE_NAME_ROOT"; #param('experiment_data_file');
+								my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
+								my $ext = "";
+								
+								if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload file: $remote_file, $local_fname.\n"; }
+								
+								$err_str = upload_file($remote_file, $io_fh, $local_fname, $ext);
+								
+								if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
+								
+								close($io_fh);
+								if($err_str) { $err_str .= " (file upload)"; }
+								if (lc $ext ne 'txt')
+								{
+									$err_str .= "Sample Descriptions file must be have .txt extension."; 
+								}
+								
+							}
+							else { $err_str = "Could not create directory for new experiment ($experiment_dir) - $!"; }
+						}
+						else { $err_str = "Could not upload Sample Descriptions file"; }
+	
+						#upload gel files and save to experiment directory
+						my %gel_fname_map;
+						my %gel_fname_ext_map;
+						if($err_str eq "")
+						{
+							my @remote_files = param('gel_data_file');
+							if (@remote_files)
+							{
+								my $remote_file; my $i = 1;
+								foreach $remote_file (@remote_files)
+								{
+									if ($remote_file)
+									{
+										my $local_fname = "$experiment_dir/$GEL_DATA_FILE_NAME_ROOT" . "$i";
+										my $ext;
+										my $remote_file_name = $remote_file;
+										if($err_str = upload_file($remote_file_name, $remote_file, $local_fname, $ext))
+										{ $err_str .= " (gel file upload)"; last; }
+										close($remote_file);
+											
+										if(!defined $ALLOWED_GEL_FILE_TYPES{lc $ext})
+										{
+											my $ext_list = join ', ', keys %ALLOWED_GEL_FILE_TYPES;
+											$err_str = "Unrecognized file type for gel file $remote_files[$i-1]. The allowed extensions are: $ext_list.";
+											last;
+										}
+										my $remote_fname_root = $remote_file_name;
+										$remote_fname_root =~ s/\.\w\w\w$//; #remove extension
+										$gel_fname_map{lc $remote_fname_root} = $i;
+										$gel_fname_ext_map{lc $remote_fname_root} = $ext;
+										$i++;
+									}
+								}
+								if ($i == 1)
+								{
+									$err_str = "No gel files uploaded";
+								}
+								
+							}
+							else { $err_str = "No gel files uploaded";  }
+						}
+					
+						if($err_str eq "")
+						{
+							$err_str = load_experiment_data_file($id, $species, \%gel_fname_map, \%gel_fname_ext_map); 
+						}
+						if($err_str eq "")
+						{
+							$err_str = process_experiment_gels($id); #forks and returns so we can get back to user
+						}
+					}; #end eval block
+					if($@) { $err_str = $@; }
+					
+					#clear params...
+					param('experiment_name', '');
+					param('experiment_description', '');
+					param('experiment_species', '');
+	
+					if($err_str eq "")
+					{
+						#show experiment page
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "Experiment at '$experiment_dir' successfully created.\n"; }
+						display_frame2('EXPERIMENT', 1, $id);
+					}
+					else
+					{ #delete the experiment directory
+						if($new_experiment) { $new_experiment -> delete(); } #change to this method in user creation!
+						
+						my $ret_err = "";
+						if($experiment_dir) { $ret_err = delete_directory($experiment_dir); }
+						if($ret_err) { $err_str .= "<br>$ret_err<br>"; }
+						
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "Error, Experiment at '$experiment_dir' deleted: $err_str\n"; }
+						display_private_error_page("Your experiment could not be created due to the following errors:<br><br>" . $err_str);
+					}
+				}
+				elsif($action eq 'ViewExperiment') #done frames
+				{
+					my $exp_id = param('Id');
+	
+					#print out the experiment details page:
+					display_frame2('EXPERIMENT', 0, $exp_id);
+	
+				}
+				elsif($action eq 'Make Public')
+				{
+					#get the gel id's to make public
+					my @ids = param('gels_public');
+					my $exp_id = param('experiment_id');
+	
+					foreach (@ids)
+					{
+						my $gel = Biochemists_Dream::Gel -> retrieve($_);
+						$gel -> set('Public' => 1);
+						$gel -> update();
+					}
+					display_frame2('EXPERIMENT', 0, $exp_id, 0);
+				}
+				elsif($action eq 'MyProcedures')
+				{
+					display_frame2('PROCEDURES');
+				}
+				#########################################################################################
+				elsif($action eq 'View / Edit')
+				{
+					my $page_type = param('page_type');
+					if($page_type eq 'procedures')
+					{
+						my $proc_id = param('procedure_id');
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "proc_id in View/Edit: $proc_id\n"; }
+						#print out the procedures page w/ edit
+						display_frame2('PROCEDURES', 0, $proc_id, 1);
+					}
+				}
+				elsif($action eq 'Create Procedure')
 				{
 					my $new_name = param('name');
 					my $new_file_contents = param('file_contents');
-					my $proc_id = param('procedure_id');
-
-					#open the file and save contents:
-					if(open(SOP_FILE, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/$proc_id.txt"))
+					my $new_proc_id;
+	
+					my $error_str = "";
+					local Biochemists_Dream::Experiment_Procedure -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
+					eval
 					{
-						print SOP_FILE $new_file_contents;
-						close(SOP_FILE);
-
-						my $exp_proc = Biochemists_Dream::Experiment_Procedure -> retrieve($proc_id);
-						$exp_proc -> set('Name' => $new_name);
-						$exp_proc -> update(); #save to db
-
-						display_frame2('PROCEDURES_UPDATED');
+						my $new_exp_proc = Biochemists_Dream::Experiment_Procedure -> insert({Name => $new_name, User_Id => $g_user_id, });
+						my $new_proc_id = $new_exp_proc -> get('Id');
+	
+						#open the file and save contents:
+						if(open(SOP_FILE, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/$new_proc_id.txt"))
+						{
+							print SOP_FILE $new_file_contents;
+							close(SOP_FILE);
+						}
+						else { $error_str = "Could not create Procedure file ($new_proc_id)"; }
+	
+					}; #end eval block
+					if($@) { $error_str = $@; }
+	
+					if($error_str eq "")
+					{
+						display_frame2('PROCEDURES_CREATED');
+					}
+					else
+					{ #delete the newly created user from the database, and the user directory
+						Biochemists_Dream::Experiment_Procedure -> dbi_rollback;
+	
+						display_private_error_page($error_str);
+					}
+				}
+				##########################################################################################################
+				## Edit projects/experiments/users in the DB ##
+				elsif($action eq 'Edit')
+				{
+					my $page_type = param('page_type');
+					if($page_type eq 'project')
+					{
+						my $project_id = param('project_parent_id');
+	
+						#print out the project details page w/ edit
+						display_frame2('PROJECT', 0, $project_id, 1);
+					}
+					elsif($page_type eq 'experiment')
+					{
+						my $exp_id = param('experiment_id');
+	
+						#print out the experiemnt details page w/ edit
+						display_frame2('EXPERIMENT', 0, $exp_id, 1);
+					}
+					elsif($page_type eq 'user')
+					{
+						display_frame2('USER');
+					}
+	
+				}
+				elsif($action eq 'DeleteFile')
+				{
+					#delete the file but first check if it is associated with any Projects/Experiments
+					#if it is then return message saying it cannot be deleted...
+					
+					my $sub_dir = param('SubDir');
+					my $file_name = param('File');
+					$file_name = lc($file_name);
+					
+					#load experiments for this user:
+					#use SQL to get any Exp's with the associated file name for that user
+					#connect to data source for getting min/max
+					my ($data_source, $db_name, $user, $password) = getConfig();
+					my $dbh = DBI->connect($data_source, $user, $password, { RaiseError => 1, AutoCommit => 0 });
+					my @cols = undef;
+					if ($sub_dir eq 'Experiment_Procedures')
+					{
+						@cols = $dbh -> selectrow_array("SELECT Count(Id) FROM Experiment WHERE Project_Id IN 
+								(SELECT Project_Id FROM Project WHERE User_Id = $g_user_id) AND 
+								Experiment_Procedure_File = '$file_name';");
+						
+					}
+					elsif($sub_dir eq 'Gel_Details')
+					{#returns $rv == 1 ***
+						@cols = $dbh -> selectrow_array("SELECT Id FROM Experiment WHERE Project_Id IN 
+								(SELECT Project_Id FROM Project WHERE User_Id = $g_user_id) AND 
+								Gel_Details_File = '$file_name';");
+					}
+					
+					if (@cols && $cols[0] > 0)
+					{
+						#file is connected to experiments, can't delete!
+						display_frame2('PROCEDURES', 0, '', '', "The file '$file_name' is associated with $cols[0] Experiment(s). First remove the file by editing the Experiment(s), then delete the file.");
 					}
 					else
 					{
-						display_private_error_page("Could not update Procedure file ($proc_id)");
+						#delete file on file system
+						unlink "$BASE_DIR/$DATA_DIR/$g_user_id/$sub_dir/$file_name";
+						display_frame2('PROCEDURES', 0, '', '', "'$file_name' has been successfully deleted from your file list.");
 					}
+					
+				}
+				elsif($action eq 'Cancel')
+				{
+					my $page_type = param('page_type');
+					if($page_type eq 'project')
+					{
+						my $project_id = param('project_parent_id');
+	
+						#print out the project details page
+						display_frame2('PROJECT', 0, $project_id);
+					}
+					elsif($page_type eq 'experiment')
+					{
+						my $exp_id = param('experiment_id');
+	
+						#print out the experiemnt details page w/ edit
+						display_frame2('EXPERIMENT', 0, $exp_id);
+					}
+					elsif($page_type eq 'user')
+					{
+						display_frame2('PROJECT', 0, -1);
+					}
+					# elsif($page_type eq 'procedures')
+					# {
+						# display_frame2('PROCEDURES');
+					# }
+				}
+				elsif($action eq 'Save Changes')
+				{
+					my $page_type = param('page_type');
+					if($page_type eq 'project')
+					{
+						my $project_id = param('project_parent_id');
+						my $new_name = param('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
+						my $new_description = param('project_description') || undef; #let description column be NULL if user enters no description
+						my @new_shared_users = param('shared_users');
+						
+						#save the changes to the database...
+						my $project = Biochemists_Dream::Project -> retrieve($project_id);
+						$project -> set('Name' => $new_name, 'Description' => $new_description);
+						$project -> update(); #save to db
+						
+						#delete shared users and add selected
+						Biochemists_Dream::Shared_Projects->search(Project_Id => $project_id)->delete_all;
+						foreach my $new_id (@new_shared_users)
+						{
+							my $sh = Biochemists_Dream::Shared_Projects->insert({ 
+							Project_Id  	=> $project_id,
+							User_Id 	=> $new_id});
+						}
+						param('project_name', '');
+						param('project_description', '');
+	
+						#print out the project details page
+						display_frame2('PROJECT', 1, $project_id);
+					}
+					elsif($page_type eq 'experiment')
+					{
+						my $exp_id = param('experiment_id');
+						my $new_name = param('experiment_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
+						my $new_description = param('experiment_description') || undef; #let description column be NULL if user enters no description
+						#my $new_species = param('experiment_species');
+						my $new_proc_file = param('experiment_procedure');
+						if ($new_proc_file eq '(none selected)') { $new_proc_file = undef; } else { $new_proc_file = lc($new_proc_file); }
+						my $new_gel_file = param('gel_details');
+						if ($new_gel_file eq '(none selected)') { $new_gel_file = undef; } else { $new_gel_file = lc($new_gel_file); }
+	
+						#save the changes to the database...
+						my $experiment = Biochemists_Dream::Experiment -> retrieve($exp_id);
+						$experiment -> set('Name' => $new_name, 'Description' => $new_description, 'Experiment_Procedure_File' => $new_proc_file, 'Gel_Details_File' => $new_gel_file);
+						$experiment -> update(); #save to db
+	
+						#print out the project details page
+						display_frame2('EXPERIMENT', 1, $exp_id);
+					}
+					elsif($page_type eq 'user')
+					{
+						my $new_fname = param('first_name');
+						my $new_lname = param('last_name');
+						my $new_orcid = param('orcid');
+						my $new_title = param('title');
+						my $new_inst = param('institution');
+						my $new_email = param('email');
+						my $new_pwd = param('password');
+						if($new_pwd eq "    ") { $new_pwd = 0; }
+	
+						if($new_pwd)
+						{
+							my $salt = join '', ('.', '/', 0 .. 9, 'A' .. 'Z', 'a' .. 'z')[rand 64, rand 64];
+							my $crypt_pwd = crypt($new_pwd, $salt);
+							$g_the_user -> set('First_Name' => $new_fname, 'Last_Name' => $new_lname, 'OrcID' => $new_orcid, 'Title' => $new_title, 'Institution' => $new_inst, 'Email' => $new_email, 'Password' => $crypt_pwd);
+						}
+						else { $g_the_user -> set('First_Name' => $new_fname, 'Last_Name' => $new_lname, 'OrcID' => $new_orcid, 'Title' => $new_title, 'Institution' => $new_inst, 'Email' => $new_email); }
+	
+						$g_the_user -> update(); #save to db
+	
+						display_frame2('USER UPDATED');
+					}
+					elsif($page_type eq 'procedures')
+					{
+						my $new_name = param('name');
+						my $new_file_contents = param('file_contents');
+						my $proc_id = param('procedure_id');
+	
+						#open the file and save contents:
+						if(open(SOP_FILE, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/$proc_id.txt"))
+						{
+							print SOP_FILE $new_file_contents;
+							close(SOP_FILE);
+	
+							my $exp_proc = Biochemists_Dream::Experiment_Procedure -> retrieve($proc_id);
+							$exp_proc -> set('Name' => $new_name);
+							$exp_proc -> update(); #save to db
+	
+							display_frame2('PROCEDURES_UPDATED');
+						}
+						else
+						{
+							display_private_error_page("Could not update Procedure file ($proc_id)");
+						}
+					}
+				}
+				else
+				{#print error screen for unknown action
+					display_private_error_page("Unknown action.");
 				}
 			}
 			else
-			{#print error screen for unknown action
-				display_private_error_page("Unknown action.");
+			{#user not logged in...
+				display_private_error_page("User is not logged in.");
 			}
-		}
-		else
-		{#user not logged in...
-			display_private_error_page("User is not logged in.");
 		}
 	}
 };
@@ -1662,7 +1754,7 @@ sub display_frameset
 		my $mode = shift;
 		if (!$mode)
 		{
-			$mode = 'SEARCH';
+			$mode = 'Home';
 		}
 		if ($mode eq 'MESSAGE')
 		{
@@ -2550,7 +2642,9 @@ sub display_frame1p
 {
 	display_title_header('PUBLIC1', "", "");
 	
-	print a({href=>"../copurification-cgi/copurification.pl?submit=SearchPublicGels", target=>'frame2p'}, "Search Public Gels"),
+	print a({href=>"../copurification-cgi/copurification.pl?submit=Home", target=>'frame2p'}, "Home"),
+		  "&nbsp;|&nbsp;",
+		  a({href=>"../copurification-cgi/copurification.pl?submit=SearchPublicGels", target=>'frame2p'}, "Search Public Gels"),
 		  "&nbsp;|&nbsp;",
 		  a({href=>"../copurification-cgi/copurification.pl?submit=LoginPage", target=>'frame2p'}, "Login"),
 		  "&nbsp;|&nbsp;",
@@ -2630,6 +2724,11 @@ sub display_frame2p
 	elsif($mode eq 'Contact')
 	{
 		display_contact();
+	}
+	elsif($mode eq 'Home')
+	{
+		print qq!<form method="post" action="/copurification-cgi/copurification.pl" enctype="multipart/form-data" id="frm1" target="_top">!;
+		display_home();
 	}
 	elsif($mode eq 'MESSAGE')
 	{
@@ -2729,6 +2828,10 @@ sub display_frame2
 	{
 		display_contact();
 	}
+	elsif($mode eq 'Home')
+	{
+		display_home();
+	}
 	elsif($mode eq 'MESSAGE')
 	{
 		;
@@ -2781,7 +2884,44 @@ sub display_contact
 	
 }
 
-sub display_experiment_files() 
+sub display_home
+{
+	print <<START_HTML;
+		<h2>Welcome to copurification.org!</h2>
+		<p>We curate images displaying protein co-purification banding patterns resulting from affinity capture followed
+		by e.g. SDS-PAGE and protein staining. We store the conditions of the experiment and link to the resulting banding
+		patterns so purifications under different conditions can be compared to one another. <p>
+		<p>You may view gels currently in our <a href="../copurification-cgi/copurification.pl?submit=SearchPublicGels" target="frame2p">public database</a>,
+		which has been seeded with data resulting from our recently developed
+		affinity capture conditions screening process (<a href="http://www.nature.com/nmeth/journal/vaop/ncurrent/full/nmeth.3395.html" target="blank">Hakhverdyan et al</a>),
+		and also <a href="../copurification-cgi/copurification.pl?submit=CreateAccount" target='frame2p'>create an account</a>
+		if you’d like to upload
+		and manage your own gels.  Your data are kept private until you choose to release them to the public (e.g. after publication).
+		For more details, please see the <a href="../copurification-html/About.html" target="frame2p">About</a> page.<p>
+		<p>This is public beta version 0.9 of this site and it will continually evolve to meet the needs of curating and data
+		mining affinity capture co-purification experiments - as well as incorporating the latest appropriate "minimum information" standards.
+		We welcome
+		<a href="../copurification-cgi/copurification.pl?submit=Contact" target="frame2p">feedback and collaboration</a>
+		from the community.</p>
+		<p>Interested in keeping abreast of our work on affinity capture optimization and data curation?  &nbsp;Please enter your contact email
+		address here and we'll update you with the latest developments...</p>
+		  
+		Email Address <input type="text" name="email" size="30" maxlength="30">&nbsp;&nbsp;&nbsp;
+		<input type="hidden" name="action" value="ContactList">
+		<input type="submit" value="Submit">
+		  
+		<br><br><br>
+		<p>This site was created by Sarah Keegan, Zhanna Hakhverdyan, John LaCava and David Fenyo - and is supported and maintained
+		by The <a href="http://www.ncdir.org" target="_blank">NCDIR</a> and <a href="http://www.fenyolab.org" target="_blank">The Fenyo Lab</a>.
+		<script language="JavaScript">
+	var username = "support"; var hostname = "copurification"; var linktext = "Contact Us";
+	document.write("<a href='" + "mail" + "to:" + username + "@" + hostname + ".org" + "'>" + linktext + "</a>");
+	</script>.</p>
+
+START_HTML
+}
+
+sub display_experiment_files()
 {#load miape-AC and miape-GE files for this user - display them and also form for deletion and upload of new files
 	
 	my $msg = shift;
@@ -3187,18 +3327,20 @@ sub display_project_page
 	my $edit = shift;
 
 	my $project = Biochemists_Dream::Project -> retrieve($id);
-
-	#check for user cut and paste a link to a project that he doesn't own
+	
+	my @users_sharing = Biochemists_Dream::Shared_Projects -> search(Project_Id=>$id);
 	my $cur_user_id = $project -> get("User_Id");
-	if($cur_user_id != $g_user_id) { print p("Sorry, you are not logged in as the owner of the project you are requesting!"); return 0; }
-
 	my $name = $project -> get("Name");
 	my $description = $project -> get("Description");
+	if (not $description) { $description = ""; }
+	
 
 	print hidden('project_parent_id', $id);
 
-	if($edit)
+	if($cur_user_id == $g_user_id && $edit)
 	{
+		my @users = Biochemists_Dream::User -> retrieve_all();
+		
 		print h2("Edit Project:"),
 			  '<table><tr><td>',
 			  'Name',
@@ -3211,8 +3353,35 @@ sub display_project_page
 			  qq!<input type="text" name="project_description" value="$description" size="75" maxlength="150" />!,
 			  #textfield('project_description', "$description", 150, 150),
 			  '</td></tr></table>',
-			  br(),
-			  submit('submit', 'Save Changes'),
+			  br(),br();
+			  
+		print 'Share this Project with:<br>';
+		print qq!<select name='shared_users' size=10 multiple=True>!;
+		foreach(@users)
+		{
+			my $cur_user_id = $_ -> get('Id');
+			if($g_user_id != $cur_user_id) #can't share with self
+			{
+				my $cur_user_name = $_ -> get('Last_Name') . ', ' . $_ -> get('First_Name');
+				my $tag = '';
+				foreach my $shared (@users_sharing)
+				{
+					if ($cur_user_id == $shared->User_Id->Id)
+					{
+						$tag = "selected";
+						last;
+					}
+					
+				}
+				print qq!<option value="$cur_user_id" $tag>$cur_user_name</option>!;
+			}
+			
+			
+			
+		}
+		print "</select>", br();
+		
+		print submit('submit', 'Save Changes'),
 			  br(), br(),
 			  submit('submit', 'Cancel'),
 			  hidden('page_type', 'project');
@@ -3220,17 +3389,36 @@ sub display_project_page
 	}
 	else
 	{
+		my $shared_users = '';
+		my $count = 0;
+		foreach my $shared (@users_sharing)
+		{
+			my $user = Biochemists_Dream::User -> retrieve($shared->User_Id->Id);
+			if($count > 0) { $shared_users .= ', '; }
+			$shared_users .= $user -> get('First_Name') . ' ' . $user -> get('Last_Name');
+			$count++;
+		}
+		if (not $shared_users) { $shared_users = "(none)"; }
+		
 		print h2("Project '$name'"),
 			  p("Description: $description"),
-			  submit('submit', 'Edit'),
-			  hidden('page_type', 'project');
+			  p("Shared with: $shared_users");
+			  
+		if($cur_user_id == $g_user_id)
+		{ print submit('submit', 'Edit'); }
+			  
+		print hidden('page_type', 'project');
 	}
-
-	display_add_experiment($name);
 	
-	print "<hr>";
-
-	display_add_project($name);
+	if($cur_user_id == $g_user_id)
+	{
+		display_add_experiment($name);
+	
+		print "<hr>";
+	
+		display_add_project($name);
+	}
+	
 
 	display_footer();
 }
@@ -3264,6 +3452,15 @@ sub display_title_header
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+</script>
 </head>
 <body style="margin:10;">
 START_HTML
@@ -3285,6 +3482,15 @@ START_HTML
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+</script>
 </head>
 <body style="margin:10;">
 START_HTML
@@ -3305,6 +3511,15 @@ START_HTML
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+</script>
 </head>
 <body style="margin:10;">
 START_HTML
@@ -3317,7 +3532,6 @@ START_HTML
 		
 		print 	qq!<h2 style="display:inline">copurification.org</h2>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Logged in: $first_name $last_name ($email)<br><br>!,
 			qq!<form method="post" action="/copurification-cgi/copurification.pl" enctype="multipart/form-data" target="frame3">!,
-			#qq!<a href="../copurification-cgi/copurification.pl?submit=OpenPublicView" onclick="return pop_up(this, 'Public View')">Search Public Gels</a>!, #open in new window, override browser defaults
 			qq!<a href="../copurification-cgi/copurification.pl?submit=OpenPublicView" target="frame2">Search Public Gels</a>!, 
 			"&nbsp;|&nbsp;",
 			a({href=>"../copurification-cgi/copurification.pl?frame=2", target=>'frame2'}, "New Project"),
@@ -3351,6 +3565,16 @@ START_HTML
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
 </head>
 <body style="margin:10;">
 START_HTML
@@ -3369,6 +3593,16 @@ START_HTML
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
 </head>
 <body style="margin:10;">
 START_HTML
@@ -3387,6 +3621,16 @@ START_HTML
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-62498626-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
 </head>
 <body style="margin:10;">
 START_HTML
@@ -3422,6 +3666,7 @@ sub display_frame1_error_page
 sub display_gel_details
 {
 	my $gel = shift;
+	my $user_id = shift;
 	my $exp_id = $gel -> get("Experiment_Id");
 	my $gel_num = $gel -> get("File_Id");
 	my $gel_type = $gel -> get("File_Type");
@@ -3461,9 +3706,9 @@ sub display_gel_details
 		}
 
 		#output lane image...also, output normalized image, but hide it:
-		push @cur_cols, qq!<div name="lane_image"><img src="/copurification/$g_user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.png"; usemap="#$lane_id"></div>\
-			       <div name="norm_lane_image" style="display:none"><img src="/copurification/$g_user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.n.png"; usemap="#$lane_id"></div>\
-			       <div name="norm_lane_image2" style="display:none"><img src="/copurification/$g_user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.nn.png"; usemap="#$lane_id"></div>!;
+		push @cur_cols, qq!<div name="lane_image"><img src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.png"; usemap="#$lane_id"></div>\
+			       <div name="norm_lane_image" style="display:none"><img src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.n.png"; usemap="#$lane_id"></div>\
+			       <div name="norm_lane_image2" style="display:none"><img src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.nn.png"; usemap="#$lane_id"></div>!;
 		
 	}
 	push @table_rows, td(\@cur_cols);
@@ -3471,7 +3716,18 @@ sub display_gel_details
 	if($public) { print "Gel $display_name, submitted on $date ($gel_type file) PUBLIC GEL"; }
 	#cant make gel public if it has an error in processing
 	elsif($err_description){ print "Gel $display_name, submitted on $date ($gel_type file) *Gel has a processing error: $err_description*"; }
-	else { print qq!<input type='checkbox' name='gels_public' value="$gel_id">Gel $display_name, submitted on $date ($gel_type file)</input>!;  }
+	else
+	{
+		if ($g_user_id == $user_id)
+		{
+			print qq!<input type='checkbox' name='gels_public' value="$gel_id">Gel $display_name, submitted on $date ($gel_type file)</input>!;
+		}
+		else
+		{
+			print qq!Gel $display_name, submitted on $date ($gel_type file)!;
+		}
+		
+	}
 
 	print br(), br();
 	print table({-border=>0, -rules=>'cols'}, caption(""), Tr({-align=>'CENTER', -valign=>'TOP'}, \@table_rows));
@@ -3511,12 +3767,8 @@ sub display_experiment_page
 	my $id = shift;
 	my $edit = shift;
 	my $exp = Biochemists_Dream::Experiment -> retrieve($id);
-
-	#check for user cut and paste a link to a project that he doesn't own
 	my $project = $exp -> Project_Id;
 	my $cur_user_id = $project -> get("User_Id");
-	if($cur_user_id != $g_user_id) { print p("Sorry, you are not logged in as the owner of the experiment you are requesting!"); return 0; }
-
 	my $name = $exp -> get("Name");
 	my $description = $exp -> get("Description");
 	my $cur_species = $exp -> get("Species");
@@ -3533,7 +3785,7 @@ sub display_experiment_page
 	# param('experiment_species', $species_id);
 	# param('experiment_procedure', $exp_proc_id);
 
-	if($edit)
+	if($cur_user_id == $g_user_id && $edit)
 	{
 		#get contents for species drop down box
 		my @species = Biochemists_Dream::Species -> retrieve_all;
@@ -3597,17 +3849,20 @@ sub display_experiment_page
 			  h3("Species: $cur_species"),
 			  p("Description: $description");
 		
-		print qq!<p><a href="/copurification/$g_user_id/Experiments/$id/data.txt" target='_blank'>Sample Descriptions File</a></p>!;
+		print qq!<p><a href="/copurification/$cur_user_id/Experiments/$id/data.txt" target='_blank'>Sample Descriptions File</a></p>!;
 			  
 		if ($proc_file eq '(none selected)')
 		{ print "<p>Experimental Procedures File: $proc_file</p>"; }
-		else { print qq!<p>Experimental Procedures File: <a href="/copurification/$g_user_id/Experiment_Procedures/$proc_file" target="blank">$proc_file</a></p>!; }
+		else { print qq!<p>Experimental Procedures File: <a href="/copurification/$cur_user_id/Experiment_Procedures/$proc_file" target="blank">$proc_file</a></p>!; }
 		
 		if ($gel_file eq '(none selected)')
 		{ print "<p>Gel Details File: $gel_file</p>"; }
-		else { print qq!<p>Gel Details File: <a href="/copurification/$g_user_id/Gel_Details/$gel_file" target="blank">$gel_file</a></p>!; }
+		else { print qq!<p>Gel Details File: <a href="/copurification/$cur_user_id/Gel_Details/$gel_file" target="blank">$gel_file</a></p>!; }
 		
-		print submit('submit', 'Edit'), hidden('page_type', 'experiment');
+		if($cur_user_id == $g_user_id)
+		{ print submit('submit', 'Edit'); }
+		
+		print hidden('page_type', 'experiment');
 	}
 
 	print hr();
@@ -3646,7 +3901,8 @@ sub display_experiment_results
 	#first, check if results are ready yet - check for 'DONE' at end of log file, also display any errors there
 	my $exp_id = shift;
 	my $exp_obj = shift;
-	my $exp_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id";
+	my $exp_user_id = $exp_obj -> Project_Id -> User_Id;
+	my $exp_dir = "$BASE_DIR/$DATA_DIR/$exp_user_id/Experiments/$exp_id";
 	my $results_ready = 0;
 	my @errors;
 
@@ -3680,7 +3936,7 @@ sub display_experiment_results
 
 		print br();
 		print '<table><tr><td>';
-		if($need_button) #-disabled=>'true'
+		if($need_button && $exp_user_id == $g_user_id) #-disabled=>'true'
 		#{ print submit(-name=>'submit', -value=>'Make Public', -disabled=>'true'), '&nbsp;&nbsp;(selected gels)', '&nbsp;&nbsp;&nbsp;|&nbsp; '; }
 		{ print submit(-name=>'submit', -value=>'Make Public'), '&nbsp;&nbsp;(selected gels)', '&nbsp;&nbsp;&nbsp;|&nbsp; '; }
 		
@@ -3693,7 +3949,7 @@ sub display_experiment_results
 		foreach my $gel (@gels)
 		{
 			print br();
-			display_gel_details($gel);
+			display_gel_details($gel, $exp_user_id);
 		}
 	}
 	else
@@ -3710,7 +3966,8 @@ sub display_experiment_results
 sub display_project_tree
 {
 	my @projects = Biochemists_Dream::Project -> search(Project_Parent_Id => undef, User_Id => $g_user_id, {order_by => 'Name'});
-
+	my @shared_projects = Biochemists_Dream::Shared_Projects -> search(User_Id => $g_user_id);
+	
 	print "<table>\n";
 	#print out each (root) project, followed by the projects/experiments it contains (recursively)
 	foreach my $cur_project (@projects)
@@ -3718,11 +3975,27 @@ sub display_project_tree
 		display_project(0, $cur_project);
 	}
 	print "</table>\n";
-	print "<br>";
+	
+	
+	if (@shared_projects)
+	{
+		
+		print h3("Shared Projects");
+		print "<table>\n";
+		#print out each (root) project, followed by the projects/experiments it contains (recursively)
+		foreach my $cur_project (@shared_projects)
+		{
+			display_project(0, $cur_project->Project_Id);
+		}
+		print "</table>\n";
+	}
+	
+	print "<hr>";
 	print submit('submit', 'Delete');
 	
 	print "&nbsp;";
 	print submit('submit', 'Search My Gels');
+	
 	#print "&nbsp;";
 	#print submit('submit', 'Compare Gel Lanes');
 }
@@ -3733,6 +4006,8 @@ sub display_project
 	my $project = $_[1];
 
 	my $id = $project -> get("Id");
+	my $user = $project -> get("User_Id");
+	my $user_id = $user -> Id;
 	my $name = $project -> get("Name");
 	my $next_num_spaces = $num_spaces+3;
 
@@ -3754,7 +4029,18 @@ sub display_project
 
 	#then, the project name
 	print qq!<input type="checkbox" name="project_checkbox" value="$id">!;
+	#if ($user_id == $g_user_id)
+	#{#if it's a shared project, current user is not the owner and we won't print out the check box
+	#	print qq!<input type="checkbox" name="project_checkbox" value="$id">!;
+	#}
+	#else { print "&nbsp"; }
+	
 	print qq!<a href="../copurification-cgi/copurification.pl?submit=ViewProject;Id=$id" target="frame2">$name</a>!;
+	if ($user_id != $g_user_id)
+	{#if its shared project, print out the owner
+		print "<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(" . $user -> First_Name . " " . $user -> Last_Name . ")";
+	}
+	
 	#end current project row
 	print "</td></tr>\n";
 
@@ -3885,8 +4171,19 @@ sub display_footer
 	#}
 	
 	
-	print end_multipart_form(),
-		  end_html();
+	print end_multipart_form();
+#	print <<GOOGLEANAL;
+#	<script>
+#		(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+#		(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+#		m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+#		})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+#	      
+#		ga('create', 'UA-62498626-1', 'auto');
+#		ga('send', 'pageview');
+#	</script>
+#GOOGLEANAL
+	print end_html();
 }
 
 #uploads a file to the server, given (1) remote file name, (2) file handle to the file to upload, and
@@ -3967,9 +4264,13 @@ sub load_experiment_data_file
 	$Biochemists_Dream::GelDataFileReader::file_extension_map = $gel_fname_ext_map;
 	
 	if(!Biochemists_Dream::GelDataFileReader::read_file())
-	{ return format_error_message(\@Biochemists_Dream::GelDataFileReader::read_error_message); }
+	{
+		return format_error_message(\@Biochemists_Dream::GelDataFileReader::read_error_message);
+	}
 	
 	#success! reading in file - all is valid!
+	if($DEVELOPER_VERSION) { print DEVEL_OUT "GelDataFileReader::read_file() did not return error message: '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$experiment_id/$EXP_DATA_FILE_NAME_ROOT.txt'\n"; }
+	
 	#navigate through gels, lanes...
 	my %proteins_added;
 	while(read_gel())
@@ -4070,6 +4371,8 @@ sub load_experiment_data_file
 			}
 		}
 	}
+	if($DEVELOPER_VERSION) { print DEVEL_OUT "Success!  Gels and Lanes created corresponding to Experiment data file '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$experiment_id/$EXP_DATA_FILE_NAME_ROOT.txt'\n"; }
+	
 	return "";
 }
 
@@ -4095,15 +4398,15 @@ sub delete_directory
 		while (my $file = readdir(DIR))
 		{
 			if($file ne "." && $file ne "..")
-			{ if(!unlink("$dir/$file")) {  $err_str = "Could not delete file ($dir/$file) - $!"; last; } }
+			{ if(!unlink("$dir/$file")) {  $err_str = "Could not delete file ($dir/$file) - $!<br>"; last; } }
 		}
 		closedir(DIR);
 	}
-	else { $err_str = "Could not open directory ($dir) - $!"; }
+	else { $err_str = "Could not open directory ($dir) - $!<br>"; }
 
 	if($err_str) { return $err_str; }
 
-	if(!rmdir($dir)) { $err_str = "Could not remove directory ($dir) - $!"; }
+	if(!rmdir($dir)) { $err_str = "Could not remove directory ($dir) - $!<br>"; }
 
 	return $err_str;
 }
@@ -4128,6 +4431,10 @@ sub delete_project
 	my $id = shift;
 
 	my $project = Biochemists_Dream::Project -> retrieve( $id );
+	if ($project -> User_Id -> Id != $g_user_id)
+	{
+		return "Can't delete Project '" . $project -> Name . "': it is owned by another user.<br>";
+	}
 
 	#get all experiments in this project (and any subprojects) so that the directories can be deleted
 	my @experiments_deleted;
@@ -4154,6 +4461,11 @@ sub delete_experiment
 	my $id = shift;
 
 	my $exp = Biochemists_Dream::Experiment -> retrieve( $id );
+	if ($exp -> Project_Id -> User_Id != $g_user_id)
+	{
+		return "Can't delete Experiment '" . $exp -> Name . "': it is owned by another user.<br>";
+	}
+	
 	$exp -> delete();
 
 	# delete, also, all files and the associated directory of this experiment
@@ -4880,15 +5192,55 @@ window.location.assign("../copurification/Reports/$fname")
 HTML
 }
 
+sub save_to_contact_list
+{
+	my $email = shift;
+	my @list = ();
+	if(open(CONTACT, '<', "$BASE_DIR/contact_list.txt"))
+	{
+		#read in contact emails, check for repeats
+		#add this one to the list
+		while (<CONTACT>)
+		{
+			chomp($_);
+			push @list, $_;
+		}
+		close CONTACT;
+	}	
+	$email =~ s/^\s*//;
+	$email =~ s/\s*$//;
+	$email = lc $email;
+	my $ignore = 0;
+	foreach my $list_email (@list)
+	{
+		if ($email eq $list_email)
+		{
+			$ignore = 1;
+		}
+	}
+	
+	if (!$ignore)
+	{
+		if (!open(CONTACT, '>>', "$BASE_DIR/contact_list.txt")) { return 0; }
+		else
+		{
+			print CONTACT "$email\n";
+			close(CONTACT);
+		}
+	}	
+	return 1;
+}
+
 sub create_lane_grouping_html
 {
 	my $exp_id = shift;
+	my $user_id = shift;
 	my $input_file_name = shift;
 	my $lane_conditions = shift;
 	my %lane_conditions = %{$lane_conditions};
 	my @lane_match_list;
 	my $min_group_score;
-	if (open(IN, "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/$input_file_name"))
+	if (open(IN, "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id/$input_file_name"))
 	{
 		my $line = "";
 		
@@ -4948,10 +5300,10 @@ sub create_lane_grouping_html
 					}
 				}
 				my $ext = "";
-				if (-e "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/$gel_name.lane.$lane_num.n.a.png")
+				if (-e "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id/$gel_name.lane.$lane_num.n.a.png")
 				{ $ext = ".a"; }
 				
-				$group_html_string .= "<img src='/copurification/$g_user_id/Experiments/$exp_id/$gel_name.lane.$lane_num.n$ext.png' title='$conditions' style='vertical-align: top;'/>";
+				$group_html_string .= "<img src='/copurification/$user_id/Experiments/$exp_id/$gel_name.lane.$lane_num.n$ext.png' title='$conditions' style='vertical-align: top;'/>";
 				$cur_group_count++;
 			}
 			
@@ -5004,7 +5356,7 @@ sub create_lane_grouping_html
 	}
 	else
 	{
-		return "<table><tr><td>Error in creating lane group image: could not open input file: '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id/$input_file_name'</td></tr></table>";
+		return "<table><tr><td>Error in creating lane group image: could not open input file: '$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id/$input_file_name'</td></tr></table>";
 	}
 }
 

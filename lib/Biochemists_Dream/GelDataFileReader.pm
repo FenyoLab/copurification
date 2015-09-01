@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!c:/perl/bin/perl.exe 
 
 #    (Biochemists_Dream::GelDataFileReader) GelDataFileReader.pm - reads the tab-delimited 'Sample Descriptions' file
 #
@@ -379,11 +379,14 @@ sub read_file
 					$calibration_lane = 1;
 					
 					#masses separated by comma, read in to array
-					$cur_value =~ s/\s//;
+					$cur_value =~ s/^\s*//;
+					$cur_value =~ s/\s*$//;
 					my @masses = split(',', $cur_value);
 					my $err = 0;
 					foreach (@masses)
 					{
+						$_ =~ s/^\s*//;
+						$_ =~ s/\s*$//;
 						if($_ =~ /^[0-9\.\s]+$/)
 						{
 							if($_ > 0) { push @{$mass_ladders[$cur_gel_num][$cur_lane_num]}, $_; }

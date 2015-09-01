@@ -65,6 +65,14 @@ Biochemists_Dream::Band_Protein -> columns(Primary => qw/Band_Id Protein_Id/);
 Biochemists_Dream::Band_Protein -> has_a(Band_Id => 'Biochemists_Dream::Band');
 Biochemists_Dream::Band_Protein -> has_a(Protein_Id => 'Biochemists_Dream::Protein_DB_Entry');
 
+############# The Shared_Projects class ########################
+package Biochemists_Dream::Shared_Projects;
+use base 'Biochemists_Dream::GelDB';
+Biochemists_Dream::Shared_Projects -> table('Shared_Projects');
+Biochemists_Dream::Shared_Projects -> columns(Primary => qw/Project_Id User_Id/);
+Biochemists_Dream::Shared_Projects -> has_a(Project_Id => 'Biochemists_Dream::Project');
+Biochemists_Dream::Shared_Projects -> has_a(User_Id => 'Biochemists_Dream::User');
+
 ############# The Band class ########################
 package Biochemists_Dream::Band;
 use base 'Biochemists_Dream::GelDB';

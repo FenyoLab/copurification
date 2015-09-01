@@ -90,6 +90,7 @@ if($drop_tables)
 	$result = $dbh -> do(qq!DROP TABLE IF EXISTS Modifications!);
 	$result = $dbh -> do(qq!DROP TABLE IF EXISTS Antibodies!);
 	$result = $dbh -> do(qq!DROP TABLE IF EXISTS Other_Capture_Methods!);
+	$result = $dbh -> do(qq!DROP TABLE IF EXISTS Shared_Projects!);
 	
 	
 	$result = $dbh -> do(qq!SET FOREIGN_KEY_CHECKS = 1!);
@@ -126,6 +127,15 @@ if($new_tables)
 		 PRIMARY KEY (Id), 
 		 FOREIGN KEY (Project_Parent_Id) REFERENCES Project(Id) ON DELETE CASCADE,
 		 FOREIGN KEY (User_Id) REFERENCES User(Id) ON DELETE CASCADE)!);
+	
+	#Shared_Projects Table
+	$result = $dbh -> do(qq!
+		CREATE TABLE IF NOT EXISTS Shared_Projects
+		(Project_Id INT UNSIGNED NOT NULL,
+		User_Id INT UNSIGNED NOT NULL,
+		PRIMARY KEY (Project_Id, User_Id),
+		FOREIGN KEY (Project_Id) REFERENCES Project(Id) ON DELETE CASCADE,
+		FOREIGN KEY (User_Id) REFERENCES User(Id) ON DELETE CASCADE)!);
 		
 	#Species Table 
 	$result = $dbh -> do(qq!

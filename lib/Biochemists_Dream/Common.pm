@@ -2,7 +2,7 @@
 
 #    (Biochemists_Dream::Common) Common.pm - provides global variables, functions useful to other modules of the program
 #
-#    Copyright (C) 2015  Sarah Keegan
+#    Copyright (C) 2014  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -87,7 +87,21 @@ our %QUANTITY_STD_UNITS = ('mg' => 1, 'µg' => 1, 'ng' => 1, 'pg' => 1, 'ug' => 1
 # sub func1 { ... }
 # sub func2 { ... }
 
-sub getConfig { return ('DBI:mysql:GelDB', 'GelDB', 'admin_user', 'password'); }
+sub getConfig
+{
+	open(SETTINGS_IN, "$SETTINGS_FILE") || return ('','','','');
+	my $db_name=''; my $db_user=''; my $db_pwd='';
+	while(<SETTINGS_IN>)
+	{
+		chomp();
+		if(/^DBNAME=(.*)$/) { $db_name = $1; }
+		elsif(/^DBUSER=(.*)$/) { $db_user = $1; }
+		elsif(/^USERPWD=(.*)$/) { $db_pwd = $1; }
+	}
+	close(SETTINGS_IN);
+	
+	return ('DBI:mysql:' . $db_name, $db_name, $db_user, $db_pwd);
+}
 
 sub read_settings
 {

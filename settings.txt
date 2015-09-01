@@ -4,5 +4,8 @@ INSTALL_DIR=C:\NCDIR\96-Well
 ImageMagick=C:\Program Files (x86)\ImageMagick-6.7.8-Q16
 wkhtmltopdf=C:\Program Files (x86)\wkhtmltopdf
 HOSTNAME=localhost
+DBNAME=MyDB
+DBUSER=UserName
+USERPWD=pass123
 
 
