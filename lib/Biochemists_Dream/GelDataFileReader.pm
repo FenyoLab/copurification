@@ -147,8 +147,15 @@ sub read_file
 		
 		#remove any blank lines before header
 		my $header = "";
-		while(!$header)
-		{ $header = <GELIN>; chomp($header); $header =~ s/^\s+//; $header =~ s/\s+$//; }
+		while($header eq "")
+		{
+			if($header = <GELIN>)
+			{
+				chomp($header);
+				$header =~ s/^\s+//;
+				$header =~ s/\s+$//;
+			}
+		}
 		
 		#read in header
 		my $next_col_name = "";

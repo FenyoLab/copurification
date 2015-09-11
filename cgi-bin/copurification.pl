@@ -626,6 +626,8 @@ START_HTML
 				my $password = param('password');
 	
 				$g_user_id = validate_user($email, $password);
+				
+				
 				if($DEVELOPER_VERSION) { print DEVEL_OUT "g_user_id = $g_user_id\n"; }
 				if($g_user_id)
 				{#login successful
@@ -2890,8 +2892,10 @@ sub display_home
 		<h2>Welcome to copurification.org!</h2>
 		<p>We curate images displaying protein co-purification banding patterns resulting from affinity capture followed
 		by e.g. SDS-PAGE and protein staining. We store the conditions of the experiment and link to the resulting banding
-		patterns so purifications under different conditions can be compared to one another. <p>
-		<p>You may view gels currently in our <a href="../copurification-cgi/copurification.pl?submit=SearchPublicGels" target="frame2p">public database</a>,
+		patterns so purifications under different conditions can be compared to one another. 
+		We currently curate Saccharomyces cerevisiae, Escherichia coli, Mus Musculus and Homo sapiens genes and proteins. For more information on the
+		specification format for these species, please see our <a href="../copurification-html/HowTo.html#ProteinName" target="frame2p">HOWTO</a> page.
+		<p><p>You may view gels currently in our <a href="../copurification-cgi/copurification.pl?submit=SearchPublicGels" target="frame2p">public database</a>,
 		which has been seeded with data resulting from our recently developed
 		affinity capture conditions screening process (<a href="http://www.nature.com/nmeth/journal/vaop/ncurrent/full/nmeth.3395.html" target="blank">Hakhverdyan et al</a>),
 		and also <a href="../copurification-cgi/copurification.pl?submit=CreateAccount" target='frame2p'>create an account</a>
@@ -2903,6 +2907,9 @@ sub display_home
 		We welcome
 		<a href="../copurification-cgi/copurification.pl?submit=Contact" target="frame2p">feedback and collaboration</a>
 		from the community.</p>
+		<p><img src="../copurification-html/new.jpg" height="20" width="27">&nbsp;&nbsp;Latest Updates...<br>
+		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * We have added support for the curation of Mouse genes via MGI systematic naming.<br>
+		&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * A new feature has been added so that users can share Projects and Experiments with other users of the system.  
 		<p>Interested in keeping abreast of our work on affinity capture optimization and data curation?  &nbsp;Please enter your contact email
 		address here and we'll update you with the latest developments...</p>
 		  
@@ -3777,7 +3784,7 @@ sub display_experiment_page
 	if (!$proc_file) { $proc_file = '(none selected)'; }
 	if (!$gel_file) { $gel_file = '(none selected)'; }
 	
-
+	#print '<div id="dialog" class="popup_dialog"><p><img src="/cdi-html/spinner.gif"/> Submitting Experiment...  </p></div>';
 	print hidden('experiment_id', $id);
 
 	# param('experiment_name', $name);
