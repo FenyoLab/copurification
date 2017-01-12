@@ -20,6 +20,7 @@ Name	Short Name
 4-Butyrolactone	GBL
 6-Aminohexanoic acid	EACA
 Adenosine-5'-triphosphate disodium salt	Na2 ATP
+Antifoam B	AF B
 Benzamidine hydrochloride	Benz HCl
 Betaine Citrate	BetCit
 Betaine hydrochloride	Betaine HCl

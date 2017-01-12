@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!c:/perl/bin/perl.exe -d
 
 #    find_lane_masses.pl - Finds the masses/amounts of the bands in the lanes given a gel image file name 
 #    uses mass/amount calibration data from the input calibration file
@@ -461,7 +461,8 @@ sub get_lane_peaks
 		#read in the intensity information - smooth the data
 		while($line=<IN>)
 		{
-			if ($line=~/^0\,([0-9]+)\:\s*\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/)
+			if ($line=~/^0\,([0-9]+)\:\s*\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/ ||
+			    $line=~/^0\,([0-9]+)\:\s*\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/)
 			{
 				$k=$1;
 				$y[$k]=$max_intensity-($2+$3+$4)/3; #average rgb values and subtract from max to reverse so black is highest (not white)
@@ -539,7 +540,8 @@ sub get_lane_peaks
 			#read in the intensity information 
 			while($line=<IN_SUM>)
 			{
-				if($line=~/^([0-9]+),([0-9]+):\s*\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)\)/)
+				if($line=~/^([0-9]+),([0-9]+):\s*\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)\)/ ||
+				   $line=~/^([0-9]+),([0-9]+):\s*\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)\)/)
 				{#read in the rgb data for each lane in the gel into the 2d array @gel
 					
 					$gel[$1][$2] = $max_intensity-($3+$4+$5)/3;

@@ -12,8 +12,9 @@ Index
 <table cellspacing="10"><tr><td><a href="#CreateAccount">Create an Account</a></td></tr><tr>
 <td><a href="#StartNewProject">Start a new Project</a></td></tr><tr>
 <td><a href="#AddExperiments">Add Experiments to a Project</a></td></tr><tr>
-<td><a href="#QueryData">Query Data in the System</a></td></tr><tr>
 <td><a href="#FillInSampleDescriptions">Create Sample Descriptions file</a></td></tr><tr>
+<td><a href="#AddMSData">Add Mass Spec Data to Experiments</a></td></tr><tr>
+<td><a href="#QueryData">Query Data in the System</a></td></tr><tr>
 <td><a href="#LaneClustering">Lane Clustering</a></td></tr>
 <td><a href="#SharedProjects">Share Projects</a></td><td>&nbsp;</td></tr><tr>
 </tr></table>
@@ -42,15 +43,15 @@ results also displayed. All your data are kept Private to your account until you
 made Public and compare them to your own.  
 
 <p align="justify"><i>As much as possible, we aim to implement <a target='_blank' href='http://mibbi.sourceforge.net/about.shtml'>Minimum Information Standards</a>  and
-implement <a target='_blank' href='https://www.ebi.ac.uk/ontology&#45;lookup/init.do'>Ontologies and Controlled Vocabularies</a>  to maximize the value of experimental
+implement <a target='_blank' href='http://www.ebi.ac.uk/ols/index'>Ontologies and Controlled Vocabularies</a>  to maximize the value of experimental
 data lodged in this repository.
 </i>
-	<br><br>
 
+
+
+<!-- CREATE ACCOUNT-->
+<br><br>
 <p><a name="CreateAccount"></a><b>HOWTO &#45; Create an account.</b><br><br>
-
-
-
 <span style="text-align:justify;">
 
 	Follow the link "Create Account" and fill out the web form. We encourage users to create an <a target='_blank' href='http://orcid.org'>ORCID</a> and
@@ -58,67 +59,60 @@ data lodged in this repository.
 	publications. Once logged in, your account details can be changed via the "My Account" link.</span><br><br>
 	<img src="create_account.png"/ >
 	
-	
 
+<!-- START NEW PROJECT-->
 <br><br>
 <p align="justify"><a name="StartNewProject"></a><b>HOWTO &#45; Start a new Project.</b><br><br>
-
 	While logged into your account, a new project may be added by clicking the "New Project" link. Once created, the new project will appear on the left side
 	of the screen. Clicking on the project displays the "Create New Experiment" interface, where experimental details, including images of gels and the affinity
 	capture conditions used, can be added to the project. A New Project can also be added to an existing Project by clicking on the Project and filling out the
 	"Create New Project" interface.<br><br>
 	<img src="create_project.png"/ >
 
+
+<!-- ADD EXPERIMENTS-->
 <br><br>
 <p align="justify"><a name="AddExperiments"></a><b>HOWTO &#45; Add Experiments to a project.</b><br><br>
 
-	Fill out the required fields, specifying the appropriate organism. "Experimental Procedures," a text file describing the
-	experiments and protocols, may be uploaded but is not currently required (the system will accept TXT, RTF, and DOC files). A
-	"Gel Details" file describing the conditions of the gel electrophoresis and basics of image development and capture
-	may also be added; although currently not required, for this we strongly recommend you supply an
-	<a target='_blank' href='http://www.psidev.info/protein&#45;separation'>MIAPE&#45;GE compliant file</a> (the system will accept TXT, RTF, DOC, and XML files).
-	Experiments must include both a "Sample Descriptions file," listing the purification conditions used in the
-	affinity capture experiments, and the associated gel image(s) showing the resulting banding patterns for each affinity captured sample. Currently,
-	the Sample Descriptions file is a plain text file including tab&#45;delimited values. It must contain one line for each lane of the gel where a sample,
-	marker, or quantity standard has been loaded. Each line contains numerical and categorical data (format described below). Upload as many images as needed,
-	all the lanes present in each image are described in the same Sample Descriptions file. The images
-	may be in TIFF, PNG, BMP, and JPEG format, but we recommend
-	the use of 16&#45;bit TIFF images.  Please note that JPEG format images cannot be quantified by our band&#45;detection tool.</span><br><br>
+	Fill out the required fields, specifying the appropriate organism. "Experimental Procedures," a text file 
+	describing the experiments and protocols, may be uploaded but is not currently required (the system will 
+	accept TXT, RTF, and DOC files). A "Gel Details" file describing the conditions of the gel electrophoresis 
+	and basics of image development and capture may also be added; although currently not required, for this we strongly recommend you supply an 
+	<a target='_blank' href='http://www.psidev.info/protein&#45;separation'>MIAPE&#45;GE compliant file</a> (the system will accept TXT, RTF, DOC, and XML files). 
+	Experiments must include both a "Sample Descriptions file," listing the purification conditions used in the affinity capture experiments, and the associated gel 
+	image(s) showing the resulting banding patterns for each affinity captured sample. Currently, the Sample Descriptions file is a plain text file including 
+	tab&#45;delimited values. It must contain one line for each lane of the gel where a sample, marker, or quantity standard has been loaded. Each line contains 
+	numerical and categorical data (format described below). Upload as many images as needed, all the lanes present in each image are described in the same Sample Descriptions file. 
+	The images may be in TIFF, PNG, BMP, and JPEG format, but we recommend the use of 16&#45;bit TIFF images. Please note that JPEG format images cannot be quantified 
+	by our band&#45;detection tool.  Important - when cropping your gel photographs, be certain to crop as close to the perimeter of the gel as possible.  We recommend just 
+	inside the gel perimeter, otherwise, edge effects may inhibit accurate clustering / lane matching. Large empty areas at the top or bottom of the gel may also be cropped 
+	away if problems in clustering / lane matching are observed, and may improve results.</span><br><br>
 	<img src="create_experiment.png"/ >
 <br><br>
-	Although our system will accommodate images in a variety of formats, resolutions, and bit&#45;depths, we recommend the use of unprocessed, uncompressed
-	images; i.e. the original, raw data (e.g. as a 16&#45;bit TIFF). Our system will apply brightness and contrast calibration during the curation process without
-	altering the original data  . To get the best results from our lane&#45;sectioning tool, gel images should be oriented such that the first lane (defined in
-	the <a href='./Example-Samples_v09.txt' target='_blank'>Sample Descriptions</a> file) is at the left, and the last lane is  at the right, and that the gel is properly aligned
-	<a href='./gel1.tif' target='_blank'>(see this example)</a>. For best results,
-	image the gel in the appropriate orientation, initially. However, rotation and cropping of the gel image, when needed, can be carried out in an image&#45;processing
-	program &#45; we recommend saving the file in the same format as the original.
+	Although our system will accommodate images in a variety of formats, resolutions, and bit&#45;depths, we recommend the use of unprocessed, uncompressed images; 
+	i.e. the original, raw data (e.g. as a 16&#45;bit TIFF). Our system will apply brightness and contrast calibration during the curation process without altering 
+	the original data . To get the best results from our lane&#45;sectioning tool, gel images should be oriented such that the first lane (defined in the
+	<a href='./Example-Samples_v09.txt' target='_blank'>Sample Descriptions</a> file) is at the left, and the last lane is at the right, and that the gel is properly aligned 
+	<a href='./gel1.tif' target='_blank'>(see this example)</a>. For best results, image the gel in the appropriate orientation, initially. However, rotation and cropping of the gel image, when needed, can be carried out in an 
+	image-processing program &#45; we recommend saving the file in the same format as the original.
 <br><br>
-	Our program is equipped to ignore empty lanes or otherwise omit lanes not described in the Sample Descriptions
-	file. The total number of lanes in the image is defined in the Sample Descriptions file (example below). The positions of the samples loaded on the gel (lane number)
-	are also defined in the same file.  Once the image is curated, the gel image is divided into lanes based on the total number specified in the Sample Descriptions
-	file,
-	and the lanes containing sample are identified based on their numerical position (counting from left to right), as specified in the Sample Descriptions file.
-	The lane&#45;sectioning tool uses the average lane width as a guide to section empty lanes. Lanes not described in the Sample Descriptions file are treated as
-	empty and ignored Do not include rows for empty lanes in the Sample descriptions file because certain descriptive columns are mandatory for all lanes in the file
-	and will cause an error if not completed.  
+	Our program is equipped to ignore empty lanes or otherwise omit lanes not described in the Sample Descriptions file. The total number of lanes in the image is defined in 
+	the Sample Descriptions file (example below). The positions of the samples loaded on the gel (lane number) are also defined in the same file. Once the image is curated, the 
+	gel image is divided into lanes based on the total number specified in the Sample Descriptions file, and the lanes containing sample are identified based on their numerical position 
+	(counting from left to right), as specified in the Sample Descriptions file. The lane&#45;sectioning tool uses the average lane width as a guide to section empty lanes. Lanes 
+	not described in the Sample Descriptions file are treated as empty and ignored Do not include rows for empty lanes in the Sample descriptions file because certain descriptive 
+	columns are mandatory for all lanes in the file and will cause an error if not completed.  
 <br><br>
-<b>Example:</b> You've run four, twenty&#45;six&#45;well midi&#45;gels. Each gel contains one molecular weight marker, one BSA quantity standard and twenty&#45;four
-experimental samples &#45; for a total of one hundred and four samples across four gels. You will need one <a href='./Nup1_example_data.txt' target='_blank'>
-Sample Descriptions</a> file  listing all one hundred and four samples loaded across all four gels (see this example, and HOWTO below )
-and four image files (one of each gel). Note: the names of the image files MUST match the "Gel file name" specified in the 
-Sample Descriptions file  &#45; this is how our program knows which sample descriptions go with which gel and which lanes on that gel.
-<br><br>
-<p align="justify"><a name="QueryData"></a><b>HOWTO &#45; Query Data in the System</b><br><br>
+<b>Example:</b> You've run four, twenty&#45;six&#45;well midi&#45;gels. Each gel contains one molecular weight marker, one BSA quantity standard and twenty&#45;four 
+experimental samples &#45; for a total of one hundred and four samples across four gels. You will need one  <a href='./Nup1_example_data.txt' target='_blank'>Sample Descriptions</a> 
+file listing all one hundred and four samples loaded across all four gels (see this example, and HOWTO below ) and four image files (one of each gel). Note: the names of the image 
+files MUST match the "Gel file name" specified in the Sample Descriptions file &#45; this is how our program knows which sample descriptions go with which gel and which lanes 
+on that gel. 
 
-	  To query your data (public and private), use the 'Search My Gels' button  below the Projects listing in the left pane once logged in to the site.
-	  Use the checkboxes to choose the Projects/Experiments to include in the Query.  <br><br>
-	<img src="private_search.png"/ ><br><br>Public Data can be queried via the 'Search Public Gels' link in the
-	  Navigation bar.  All query results will open in a new window so that your data may be compared to Public Data on the site.  <br><br>
-	<img src="public_search.png"/ >
 
+<!-- FILL IN FIELDS OF SAMPLE DESCRIPTIONS FILE-->
 <br><br>
-<p align="justify"><a name="FillInSampleDescriptions"></a><b><a id="SD">HOWTO</a> &#45; Fill the fields of the Sample Descriptions file.</b><br><br>
+<p align="justify"><a name="FillInSampleDescriptions"></a><b><a id="SD">HOWTO</a> &#45; Fill the Fields of the Sample Descriptions file.</b><br><br>
 
 The <a href='./Sample_Descriptions_v09.txt' target='_blank'>Sample Descriptions</a> file  can be filled out as a spreadsheet in any program that can
 save the result as a tab&#45;delimited text file,
@@ -131,23 +125,22 @@ controlled vocabulary. Please <script language="JavaScript">
 	</script>  for questions or doubts. We encourage adding references to certain fields as PMID, PMCID or
 DOI when helpful, as discussed below.
 <br><br>
-When describing the extraction solvent(s) used, multiple reagents of the same class (most commonly salts and detergents) can be specified by
-adding the appropriate headings multiple times (e.g. salt, salt concentration, salt unit for each different salt used). Note: we currently
-accept the following units of metric concentration &#45; M, mM, uM, &mu;M, nM, pM. Note, micromolar units can use either a 'u' or a Greek letter mu as
-the prefix. We also accept concentrations expressed as percent volume units: % w/v and % v/v (however, we are not currently processing
-% w:v, % v:v or any units expressed as percent weight). <a href="./data_file_instructions.htm" target="_blank">Here</a>  is a full list of all the reagents
-currently supported by our system. <script language="JavaScript">
+When describing the extraction solvent(s) used, multiple reagents of the same class (most commonly salts and detergents) can be specified by adding the appropriate 
+headings multiple times (e.g. salt, salt concentration, salt unit for each different salt used). Note: we currently accept the following units of metric 
+concentration &#45; M, mM, uM, &mu;M, nM, pM. Note, micromolar units can use either a 'u' or a Greek letter mu as the prefix. We also accept concentrations expressed 
+as percent volume units: % w/v and % v/v (however, we are not currently processing % w:v, % v:v or any units expressed as percent weight).  
+<a href="./data_file_instructions.htm" target="_blank">Here</a>  is a full list of all the reagents currently supported by our system. 
+<script language="JavaScript">
 	var username = "support"; var hostname = "copurification"; var linktext = "Contact us";
 	document.write("<a target='_blank' href='" + "mail" + "to:" + username + "@" + hostname + ".org" + "'>" + linktext + "</a>");
-	</script>
+</script>
 if you need to have a reagent added to this list for your upload to work. In most cases an example of common usage can be gleaned by viewing the public data and the
-example
-Sample Descriptions file.
+example Sample Descriptions file.
 <br>
 <ul>
 <li>The following fields are mandatory for each lane: <i>Gel file name</i>, <i>Lane # on gel</i>, and <i>Total # of lanes on gel</i>.</li>
 <li>The following fields are mandatory for each lane EXCEPT those specifying a Mass Ladder or Quantity Standard:  <i>Over&#45;expressed</i>, <i>
-Protein Systematic Name</i>, and <b>either</b> <i>Antibody</i> <b>or</b> <i>Other capture</i>.</li>
+Protein Systematic Name</i>, <b>either</b> <i>Antibody</i> <b>or</b> <i>Other capture and Single Reactant Flag</i>.</li>
 <li>Each gel must have at least one lane with an associated <i>Mass Ladder</i> column.     <i>Quantity Std</i> is optional for a gel, and
 will be ignored if a JPEG file is submitted.</li>
 <li>All fields permit 255 characters, except for notes, which permits 500 characters. </li>
@@ -219,25 +212,123 @@ Helpful links:<br>
 <br><br>
 <i>Notes</i>: in this section any additional details important for understanding the affinity capture may be provided. Please be judicious and succinct. Examples of info to provide might include details of the construct or expression system, capture method, etc. References are always encouraged.  
 <br><br>
-<p align="justify"><a name="LaneClustering"></a><b><a id="SD">HOWTO</a> &#45; Lane Clustering.</b><br><br>
+<i>Single Reagent Flag:</i>: this field is intended to indicate whether the entire protein purification experiment was conducted using the same solution or ‘buffer;’ 
+i.e. a single purification reagent solution. If e.g. the results in lane #2 were obtained using a solution of 20 mM HEPES pH 7.4, 200 mM NaCl, and 0.01% v/v Tween 20 
+for making the cell extract and washing the affinity resin, followed by through denaturing elution in a solution containing 2% SDS, indicate ‘yes’ in this field for lane #2. 
+If more than one distinctive solution was used for extraction and washing prior to the final elution, then answer ‘no’ in this field. In the case that multiple, distinctive 
+solutions were used to extract and wash a sample, then we suggest listing further details of the solutions used after extraction in the Notes section.
 
+
+<!-- ADD MASS SPEC DATA TO EXPERIMENTS-->
+<br><br>
+<p align="justify"><a name="AddMSData"></a><b>HOWTO &#45; Add Protein and Mass Spectrometry Data to Experiments</b><br><br>
+Once an experiment has been added to a project, mass spectrometry data may be added to the lanes and individual bands.  To start – expand a project or subproject by clicking on the “checkbox” (the arrow which will be red it there are experiments to view) in the My Projects display list on the left of the web page.  Clicking on an experiment will display one or more gels to the right side of the web  page.  Each of these gels will have the separate photographs for each of the lanes. The lane numbers at the top are clickable and so are the bands within each of the lane photographs.  
+<br><br>
+<img src="Photo 1.png"/ >
+<br><br>
+
+<i>To Add Protein/MS Data to A Lane</i>
+<br><br>
+Clicking on a lane number will display a pop up window for entering mass spectrometry data for the entire lane.
+<br><br>
+<img src="Lane Popup.png"/ >
+<br><br>
+
+First, choose one of the search engines from the pull down menu.  
+<br><br>
+<img src="Lane pulldown.png"/ >
+<br><br>
+
+Next, click the file browse button to choose a MS Search Results file from your server or local machine to upload to the copurification web server (it will be the standard file selection window for your browser). When ready click the [Add MS Data] button which will start the uploading of the file  and update the database with the MS Search Engine.  Once completed the page returns to its initial view.  However, the color of lane number will change from blue to green indicating that lane information has been applied.  In addition, when the mouse is rolled over the lane number link (now green) will reveal some updated information – the MS Search Engine.
+<br><br>
+<img src="Lane Rollover.png"/ >
+<br><br>
+
+By clicking, on a green link will reveal a pop up window with two portions.  One with current information which includes the MS Search Engine and a link to the MS Search Results File.  Clicking on this link will display the file in a separate window for viewing or display a standard download dialog box if the file is not viewable in the browser.  In addition, a panel for updating the existing data (more on this later) is also displayed.  
+<br><br>
+<img src="Lane Current - Update Panel.png"/ >
+<br><br>
+
+As always, clicking the [CLOSE] button will close the window without further processing.  
+<br><br>
+<i>To Add Data to A Band</i>
+<br><br>
+Clicking on a band (the cursor becomes a cross hair when over a band) will display a pop up window for entering Mass Spec data for that band.
+<br><br>
+<img src="Band Update - Simple.png"/ >
+<br><br>
+
+Initially, a simple entry panel is displayed that allows the entry of the protein systematic name to be applied to the band and a pulldown menu for selecting the method used to identify the protein.  There are three choices at this time - 'western blot', 'mass spec', and 'other'.  If 'western blot' or 'other' is chosen no other data needs to be entered.  Clicking on the [Add MS Data] button initiates the update process.  The protein systematic name will be verified against local and external databases supported by copurification.org.  If a protein ID method of Mass Spec is chosen, then an additional set of entry fields for entering a MS Search Engine and Results File is displayed (the same as in the lane update).
+<br><br>
+<img src="Band New Entry.png"/ >
+<br><br>
+Just as in the lane data entry, first choose one of the search engines from the pull down menu.  Next, click the file browse button to choose a MS data file from your server or local machine to upload to the copurification.org web site.  By clicking on the [Add MS Data] button, the protein name is verified, the file name is edited and verified. When all fields are edited – three of the data fields are applied to the band in the database and the MS Results File is uploaded.  Once completed the page returns to its initial view.  However, the color of lane number will change to orange (from either green or blue) indicating that lane has at least one band with information applied to it (note – it is possible that there is lane information applied as well).  When the mouse is rolled over the updated band will reveal some updated information – Mass, Quantity, Protein Systematic Name, ID Method.  
+<br><br>
+<img src="Band Rollover.png"/ >
+<br><br>
+
+By clicking on a updated band,  a pop up window with two portions will be displayed.  One with current information and a panel for updating the existing data (more on this later).  It will show at least a protein systematic name and protein id method.  If mass spectrometry data was added them the MS Search Engine and Results File (with a link to the uploaded file) will be displayed just as in the lane update. As always, clicking [CLOSE] will close the window without further processing.  
+<br><br>
+<i>Updating and Deleting Lane and Band Mass Spectrometry Data</i>
+<br><br>
+Existing lane and band mass spectrometry data may be updated at any time.  By clicking on either the lane number link or on a band, an update popup panel will be displayed which will allow you to change the protein assigned.  
+<br><br>
+<img src="Lane Current - Update Panel.png"/ >
+<br><br>
+
+For a lane, either the MS Search Engine, the MS Search Results File, or both may  be changed.  Note - you must populate both data fields even if only one of them need to be changed.  Clicking the [Add MS Data] button will update the data and the web page returns to its initial state.  When you do update the MS Results File, the old file is deleted. As always, clicking [CLOSE] will close the window without further processing.
+<br><br>
+For updating a band, simply click on a band with existing data.  The update popup panel will be displayed with existing data and the update panel.  
+<br><br>
+<img src="Band Update - MS.png"/ >
+<br><br>
+
+
+The update panel is completely blank and all relevant data must be reentered even if it is a field that has not changed.  With band data, there are additional data that may be added and therefore changed.  When the protein ID method is set to either 'western blot' or 'other' only a protein systematic name may be entered.  When the protein ID method is set to 'mass spec', an additional update fields are displayed that allows the entry of the MS Search Engine and MS Search Results File.  Again, all these fields are empty and all four must be entered when updating the protein information.  
+<br><br>
+In the case when the existing protein ID method is changed from 'western blot' or 'other' to 'mass spec' or visa versa, additional changes may be made behind the scenes upon update.  For example, when changing from 'mass spect' to either 'western blot' or 'other', the current MS Search Engine will be nulled in the database and the MS Search Results File will be deleted.
+<br><br>
+Clicking the [Add MS Data] button will update the data and the web page returns to its initial state.  As in the lane update, when you do update the MS Results File, the old file is deleted and the new file is uploaded.
+<br><br>
+To delete existing data all together,  simply click on the [Del MS Data] button and all associated data and files are removed. As always, clicking [CLOSE] will close the panel without further processing. 
+
+
+<!-- QUERY DATA-->
+<br><br>
+<p align="justify"><a name="QueryData"></a><b>HOWTO &#45; Query Data in the System</b><br><br>
+
+	  To query your data (public and private), use the 'Search My Gels' button  below the Projects listing in the left pane once logged in to the site.
+	  Use the checkboxes to choose the Projects/Experiments to include in the Query.  <br><br>
+	<img src="private_search.png"/ >
+<!--	
+	<br><br>Public Data can be queried via the 'Search Public Gels' link in the
+	  Navigation bar.  All query results will open in a new window so that your data may be compared to Public Data on the site.  <br><br>
+	<img src="public_search.png"/ >
+-->
+
+
+<!-- LANE CLUSTERING-->
+<br><br>
+<p align="justify"><a name="LaneClustering"></a><b><a id="SD">HOWTO</a> &#45; Lane Clustering.</b><br><br>
 When logged in to the system and viewing an Experiment, click on the link "View Lane Clustering."  This will open a new page in the web browser with the lanes for each captured protein clustered by matching bands.
 Hovering the mouse pointer over each image will open a tooltip listing the Reagents for a lane.
-
 <br><br>
-	<img src="lane_clustering.png"/ ><br><br></p>
-	
-<p align="justify"><a name="SharedProjects"></a><b><a id="SD">HOWTO</a> &#45; Share Projects/View a Shared Project.</b><br><br>
-Open an existing Project by clicking on the Project Name in the left hand side tree view.
-You will see the Project information displayed in the top area of the main viewing pane.
-Click on the Edit button and a form will be displayed allowing you to Share the Project with one or more users.
-(hold down Ctrl to select multiple users)  
-Then click Save.  These users can now view the Project and the Experiments it contains.<br><br>
-If a user has shared his/her project with you, then these will be listed under a separate section in the left
-hand side viewing pane, titled "Shared Projects."  The Projects can be viewed but not altered in any way.
-Also, Shared Projects can be included in the "Search My Gels" query by selecting them using the check boxes.<br><br>
-<img src="share_projects.png"/ >
+<img src="lane_clustering.png"/ ><br><br></p>
 
-<BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR><BR>
+
+<!-- SHARE PROJECTS -->
+<br><br>
+<p align="justify"><a name="SharedProjects"></a><b><a id="SD">HOWTO</a> &#45; Share Projects/View a Shared Project.
+</b><br><br>
+Open an existing Project by clicking on the Project Name in the left hand side tree view. You will see the Project information displayed 
+in the top area of the main viewing pane. Click on the Edit button and a form will be displayed allowing you to Share the Project with one 
+or more users. (hold down Ctrl to select multiple users) Then click Save. These users can now view the Project and the Experiments it contains.  
+Shared Projects can be included in the "Search My Gels" query by selecting them using the check boxes.
+</b><br>
+If a user has shared his/her project with you, then these will be listed under a separate section in the left hand side viewing pane, 
+titled "Shared Projects." The Projects can be viewed but not altered in any way. With the new Mass Spectrometry update, clicking on a 
+lane or band will show the current data only.  The update panel will not be displayed.  In addition, the mouse rollover will still function 
+displaying summary data for a lane or band.
+<img src="share_projects.png"/ >
 </body>
 </html>
