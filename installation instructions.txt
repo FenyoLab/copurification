@@ -1,0 +1,73 @@
+*NOTE: this file needs to be updated!*
+
+Create dirs:
+-----------
+ 
+'RootDir': (e.g. D:/Program Files/96Well/)
+
+in RootDir:
+
+cgi-bin
+html
+database
+data_v2_0
+finding_lane_boundaries
+lib/Biochemists_Dream
+
+Copy files:
+----------
+
+RootDir/
+(1) add to httpd.txt 
+(2) settings.txt
+(3) installation instructions.txt (this document)
+
+RootDir/cgi-bin/
+(1) biochemists_dream.pl
+(2) process_experiment_gels.pl
+
+Rootdir/html
+(1) greyplus.gif
+(2) plus.gif
+(3) minus.gif
+(4) main.css
+(5) data_file_example.txt
+(6) data_file_example.xls
+(7) data_file_instructions.htm
+(8) data_file_template.txt
+(9) data_file_template.xls
+
+RootDir/database
+(1) create_mysql_db.pl
+(2) Detergent.txt
+(3) Buffer.txt
+(4) Other.txt
+(5) Salt.txt
+
+RootDir/finding_lane_boundaries
+(1) find_lane_boundaries.pl
+(2) find_lane_masses.pl
+
+Edit Files:
+----------
+settings.txt
+create_mysql_db.pl
+
+Install:
+-------
+ImageMagick (6.7.8-Q16)
+perl
+perl modules: LWP::Simple, Webservice::InterMine::Simple (also: DBI, Class::DBI, CGI, Proc::Background, Math::Trig, File::Copy)
+MySql
+
+Run:
+---
+create_mysql_db.pl
+
+Add to Apache config:
+--------------------
+contents of 'add to httpd.txt', *editing directory entries*
+
+Check program is working:
+------------------------
+Go to 'http://localhost/biochemists_dream-cgi/biochemists_dream.pl' in a web browser (replace localhost with server name)

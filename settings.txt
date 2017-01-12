@@ -1,11 +1,8 @@
-*This is just an example, please adjust the below to suit your environment*
-
-INSTALL_DIR=C:\NCDIR\96-Well
+INSTALL_DIR=C:\Shared Projects\copurification
 ImageMagick=C:\Program Files (x86)\ImageMagick-6.7.8-Q16
 wkhtmltopdf=C:\Program Files (x86)\wkhtmltopdf
 HOSTNAME=localhost
-DBNAME=MyDB
-DBUSER=UserName
-USERPWD=pass123
-
+DBNAME=GelDB
+DBUSER=GelDBAdmin
+USERPWD=pennylote
 

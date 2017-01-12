@@ -17,6 +17,11 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#	 
+#	 Single Reactant Flag and Mass Spectroscopy Updates
+#	 by Bart Aromando  03-03-2016
+#
+#	 Added columns to lane table and band_protein table
 
 use lib "../lib";
 
@@ -219,6 +224,9 @@ if($new_tables)
 		PRIMARY KEY (Name))!);
 		
 	#Lane Table - Ladder_Id is a foreign key and if Ladder is deleted, foreign key in this table will be set to NULL, Lane will not be deleted
+	#Updated 03-03-2016 for the Single Reactant Flag and Mass Spectroscopy update
+	#Updated 08-10-2016 aded MS_File_Suffix
+	#by Bart Aromando
 	$result = $dbh -> do(qq!
 		CREATE TABLE IF NOT EXISTS Lane
 		(Id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -240,6 +248,9 @@ if($new_tables)
 		Antibody VARCHAR(255),
 		Other_Capture VARCHAR(255),
 		Notes VARCHAR(255),
+		Single_Reactant_Flag TINYINT(1),
+		MS_Search_Engine VARCHAR(32),
+		MS_File_Suffix VARCHAR(10),
 		PRIMARY KEY (Id),
 		FOREIGN KEY (Gel_Id) REFERENCES Gel(Id) ON DELETE CASCADE,
 		FOREIGN KEY (Ladder_Id) REFERENCES Ladder(Id) ON DELETE SET NULL,
@@ -262,10 +273,16 @@ if($new_tables)
 		FOREIGN KEY (Lane_Id) REFERENCES Lane(Id) ON DELETE CASCADE)!);
 	
 	#Band_Protein Table
+	#Updated 03-03-2016 for the Mass Spectroscopy update
+	#by Bart Aromando
+	#Updated 08-10-2016 aded MS_File_Suffix
 	$result = $dbh -> do(qq!
 		CREATE TABLE IF NOT EXISTS Band_Protein
 		(Band_Id INT UNSIGNED NOT NULL,
 		Protein_Id INT UNSIGNED NOT NULL,
+		MS_Search_Engine VARCHAR(32),
+		Protein_Id_Method VARCHAR(32),
+		MS_File_Suffix VARCHAR(10),
 		PRIMARY KEY (Band_Id, Protein_Id),
 		FOREIGN KEY (Band_Id) REFERENCES Band(Id) ON DELETE CASCADE,
 		FOREIGN KEY (Protein_Id) REFERENCES Protein_DB_Entry(Id) ON DELETE CASCADE)!);

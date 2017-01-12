@@ -158,7 +158,7 @@ eval
 		}
 		
 		#call find_lane_boundaries.pl
-		$sys_ret = system(qq!"../finding_lane_boundaries/find_lane_boundaries2.pl" "$cur_gel_txt_file" "$lanes"!);
+		$sys_ret = system(qq!"perl.exe" "../finding_lane_boundaries/find_lane_boundaries2.pl" "$cur_gel_txt_file" "$lanes"!);
 		
 		#create mass cal file - read in mass cal lanes numbers and amount cal lane numbers and amount(s)
 		open(OUT, ">$experiment_dir/calibration.txt");
@@ -213,7 +213,7 @@ eval
 		#call find_lane_masses
 		if ($first_gel)
 		{
-			system(qq!"../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt"!); #fix the input parameters in this program to match here...
+			system(qq!"perl.exe" "../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt"!); #fix the input parameters in this program to match here...
 			$first_gel = 0;
 			$alignment_gel_name = $cur_gel_img_file_root;
 			$alignment_gel_cal_lane = $mass_cal_lanes[0] -> get("Lane_Order");
@@ -221,8 +221,7 @@ eval
 		}
 		else
 		{
-			system(qq!"../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt" "$alignment_gel_name" "$alignment_gel_cal_lane"!); #fix the input parameters in this program to match here...
-			
+			system(qq!"perl.exe" "../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt" "$alignment_gel_name" "$alignment_gel_cal_lane"!); #fix the input parameters in this program to match here...
 		}
 		
 		#gel all lanes for this gel (in order 1 to max), add bands that were found by the program:
@@ -272,16 +271,16 @@ eval
 								$amount_error = $1;
 							}
 						}
+					
+						$mass = sprintf("%.2f", $mass);
+						if($mass_error) { $mass_error = sprintf("%.2f", $mass_error); }
+						if($amount) { $amount = sprintf("%.4f", $amount); }
+						if($amount_error) { $amount_error = sprintf("%.4f", $amount_error); }
+						
+						#create bands for each mass listed in file
+						my $band = Biochemists_Dream::Band -> insert({Lane_Id => $lane_id, Mass => $mass, Mass_Error => $mass_error, Start_Position => $start,
+											      End_Position => $end, Quantity => $amount, Quantity_Error => $amount_error});	
 					}
-					
-					$mass = sprintf("%.2f", $mass);
-					if($mass_error) { $mass_error = sprintf("%.2f", $mass_error); }
-					if($amount) { $amount = sprintf("%.4f", $amount); }
-					if($amount_error) { $amount_error = sprintf("%.4f", $amount_error); }
-					
-					#create bands for each mass listed in file
-					my $band = Biochemists_Dream::Band -> insert({Lane_Id => $lane_id, Mass => $mass, Mass_Error => $mass_error, Start_Position => $start,
-										      End_Position => $end, Quantity => $amount, Quantity_Error => $amount_error});	
 				}
 				
 				#create blank image that is same size/shape as lane image

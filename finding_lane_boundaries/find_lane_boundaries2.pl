@@ -340,14 +340,14 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 			print LOG "Performed ImageMagick rotate ($ret) for (norm2) Lane $lane_i_display, angle = $rotate_angle.\n";
 			
 			#trim/shave extra whitespace
-			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
-			print LOG "Performed ImageMagick trim ($ret) for Lane $lane_i_display.\n";
+			#$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
+			#print LOG "Performed ImageMagick trim ($ret) for Lane $lane_i_display.\n";
 			
-			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.n.txt" 2>&1`;
-			print LOG "Performed ImageMagick trim ($ret) for (norm) Lane $lane_i_display.\n";
+			#$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.n.txt" 2>&1`;
+			#print LOG "Performed ImageMagick trim ($ret) for (norm) Lane $lane_i_display.\n";
 			
-			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
-			print LOG "Performed ImageMagick trim ($ret) for (norm2) Lane $lane_i_display.\n";
+			#$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
+			#print LOG "Performed ImageMagick trim ($ret) for (norm2) Lane $lane_i_display.\n";
 		}
 	}
 	

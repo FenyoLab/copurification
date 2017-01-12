@@ -45,10 +45,11 @@ our @ISA = qw(Exporter);
 our @EXPORT = qw(read_file read_gel reset_gels read_lane reset_lanes get_gel_file_name gel_gel_file_name_orig get_num_lanes get_lane_index
 		get_mass_ladder get_qty_std_data get_ph get_protein_sys_name get_protein_common_name get_protein_id_in_db
 		get_protein_db_id_in_db get_over_expressed get_tag_location get_tag_type get_antibody get_other_capture
-		get_notes get_salts get_buffers get_detergents get_other_reagents $data_file_name $num_gels @read_error_message);
+		get_notes get_single_reagent_flag get_salts get_buffers get_detergents get_other_reagents $data_file_name $num_gels @read_error_message);
 
 # Functions and variables which can be optionally exported
-our @EXPORT_OK = qw();
+# added for mas spect udpate 05/05/2016
+our @EXPORT_OK = qw(validate_protein_name);
 
 }
 
@@ -80,7 +81,7 @@ our $num_gels;
 our %allowed_column_names = ("gel file name" => "1", "lane # on gel" => "1", "total # of lanes on gel" => "1", "ph" => "1",
 			     "mass ladder" => "1", "quantity std" => 1,
 			     "protein systematic name" => "1", "tag location" => "1", "over-expressed" => "1", 
-			     "tag type" => "1", "antibody" => "1",  "other capture" => "1", "notes" => "1",
+			     "tag type" => "1", "antibody" => "1",  "other capture" => "1", "notes" => "1", "single reagent flag" => "1",
 			     "salt" => "1", "salt concentration" => "1", "salt unit" => "1",
 			     "detergent" => "1", "detergent concentration" => "1", "detergent unit" => "1",
 			     "buffer" => "1", "buffer concentration" => "1", "buffer unit" => "1",
@@ -112,16 +113,17 @@ our @tag_type;
 our @antibody; 
 our @other_capture; 
 our @notes;
+our @single_reagent_flag;
 
 my @valid_lane_numbers;
 
 my %ORDERED_COLUMNS = ("salt" => 1, "buffer" => 1, "detergent" => 1, "other" => 1);
 my %SINGLE_COLUMNS = ("gel file name" => 1, "lane # on gel" => 1, "total # of lanes on gel" => 1, "ph" => 1, "mass ladder" => "1", "quantity std" => "1", 
 		      "protein systematic name" => 1, "tag location" => 1, "over-expressed" => 1, "tag type" => 1,
-		      "antibody" => 1, "other capture" => 1, "notes" => 1);
-my @MANDATORY_COLUMNS_IN_HEADER = ("gel file name", "lane # on gel", "total # of lanes on gel", "mass ladder", "quantity std", "over-expressed", "protein systematic name");
+		      "antibody" => 1, "other capture" => 1, "notes" => 1, "single reagent flag" => 1);
+my @MANDATORY_COLUMNS_IN_HEADER = ("gel file name", "lane # on gel", "total # of lanes on gel", "mass ladder", "quantity std", "over-expressed", "protein systematic name", "single reagent flag");
 my %VALIDATION_COLS_TABLES = ('tag location' => 'Tag_Locations');
-my %MANDATORY_COLUMNS_IN_DATA = ("gel file name" => 1, "lane # on gel" => 1, "over-expressed" => 1, "protein systematic name" => 1);
+my %MANDATORY_COLUMNS_IN_DATA = ("gel file name" => 1, "lane # on gel" => 1, "over-expressed" => 1, "protein systematic name" => 1, "single reagent flag" => 1);
 
 my %validation_tables;
 my %valid_reagents;
@@ -190,7 +192,10 @@ sub read_file
 					$next_col_name = "";
 				}
 			}
-			elsif($SINGLE_COLUMNS{$col_name}) { $fixed_col_name = $col_name; }
+			elsif($SINGLE_COLUMNS{$col_name})
+			{
+				$fixed_col_name = $col_name;
+			}
 			elsif($ORDERED_COLUMNS{$col_name})
 			{
 				$fixed_col_name = $col_name;
@@ -366,6 +371,7 @@ sub read_file
 					$antibody[$cur_gel_num][$cur_lane_num] = undef;
 					$other_capture[$cur_gel_num][$cur_lane_num] = undef;
 					$notes[$cur_gel_num][$cur_lane_num] = undef;
+					$single_reagent_flag[$cur_gel_num][$cur_lane_num] = undef;
 					foreach my $cur_column (keys %ORDERED_COLUMNS)
 					{ ${$reagents{$cur_column}}[$cur_gel_num][$cur_lane_num] = (); }
 				}
@@ -554,6 +560,24 @@ sub read_file
 			elsif(!$calibration_lane) #error, mandatory field
 			{ push @read_error_message, "Line $line_i: Missing a value for 'Over-expressed'.  This is a mandatory field."; }
 			
+			#single_reagent_flag - mandatory if(!$calibration_lane)
+			$cur_value = $cur_values[$columns_found{"single reagent flag"}]; 
+			if($cur_value)
+			{
+				$cur_value = lc($cur_value);
+				if($cur_value =~ /y|yes|n|no/)
+				{
+					if($cur_value =~ /y|yes/)
+					{ $single_reagent_flag[$cur_gel_num][$cur_lane_num] = 1; }
+					else #if($cur_value =~ /n|no/)
+					{ $single_reagent_flag[$cur_gel_num][$cur_lane_num] = 0; }
+				}
+				else
+				{ push @read_error_message, "Line $line_i: 'Single reagent flag' is not in the correct format (acceptable values are: Yes, No) $cur_value."; }
+			}
+			elsif(!$calibration_lane) #error, mandatory field
+			{ push @read_error_message, "Line $line_i: Missing a value for 'Single-reagent-flag'.  This is a mandatory field."; }
+			
 			#antibody - not mandatory
 			my $no_antibody = 0;
 			if(defined $columns_found{"antibody"})
@@ -611,8 +635,6 @@ sub read_file
 				if($cur_value)
 				{ $notes[$cur_gel_num][$cur_lane_num] = $cur_value; }
 			}
-			
-			
 			
 			#salt, buffer, detergent, other
 			foreach my $cur_column (keys %ORDERED_COLUMNS)
@@ -738,16 +760,14 @@ sub read_file
 sub validate_protein_name
 {#given protein systematic name, first check local DB, then if not found go online to verify.
 	my $name = $_[0];
-	
 	my @dbs = Biochemists_Dream::Protein_DB -> search(Species => $species, { order_by => 'Priority' });
-	
 	foreach (@dbs)
 	{
 		my $db_id = $_ -> get('Id');
 		my $db_name = $_ -> get('Name');
 		my @proteins;
 		if(($db_name eq 'RefSeq' || $db_name eq 'GenBank') && $name !~ /\.[0-9]+$/)
-		{
+		{	
 			#if no version number given for name, allow for it in the database:
 			my $like_name = $name . '.' . '%';
 			@proteins = Biochemists_Dream::Protein_DB_Entry -> search_like(Protein_DB_Id => $db_id, Systematic_Name => $like_name);
@@ -942,6 +962,11 @@ sub get_other_capture
 sub get_notes
 {
 	return $notes[$current_gel_index][$current_lane_index];
+}
+
+sub get_single_reagent_flag
+{
+	return $single_reagent_flag[$current_gel_index][$current_lane_index];
 }
 
 sub get_salts

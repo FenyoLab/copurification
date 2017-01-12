@@ -113,7 +113,8 @@ sub validate_refseq
             
             if($name eq $t1 || $name eq $t2)
             {
-                if($content =~ /<h1>\s*(.+)\s*\[$species.*\]\s*<\/h1>/)
+                #if($content =~ /<h1>\s*(.+)\s*\[$species.*\]\s*<\/h1>/)
+                if($content =~ /<title>\s*(.+)\s*\[$species.*\]\s*(.+)\s*<\/title>/)
                 {
                     $_[1] = $1;
                     $found = 1;
@@ -143,7 +144,8 @@ sub validate_genbank_gene
     if(defined $content)
     {#parse fasta for organism, common name
         #<span class="geneid">Gene ID: 10179, updated on 26-Jan-2014</span>
-        while($content =~ s/Gene ID:\s*([^\s^<^,]+)//)
+        #while($content =~ s/Gene ID:\s*([^\s^<^,]+)//)
+        while($content =~ s/GenBank:\s*([^\s^<^,]+)//)
         {
             my $t1 = $1; my $t2 = $t1; my $version = "";
             if($t2 =~ s/\.([0-9]+)$//) 

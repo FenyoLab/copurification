@@ -62,6 +62,7 @@ package Biochemists_Dream::Band_Protein;
 use base 'Biochemists_Dream::GelDB';
 Biochemists_Dream::Band_Protein -> table('Band_Protein');
 Biochemists_Dream::Band_Protein -> columns(Primary => qw/Band_Id Protein_Id/);
+Biochemists_Dream::Band_Protein -> columns(Others => qw/MS_Search_Engine Protein_Id_Method MS_File_Suffix/);
 Biochemists_Dream::Band_Protein -> has_a(Band_Id => 'Biochemists_Dream::Band');
 Biochemists_Dream::Band_Protein -> has_a(Protein_Id => 'Biochemists_Dream::Protein_DB_Entry');
 
@@ -86,7 +87,7 @@ package Biochemists_Dream::Lane;
 use base 'Biochemists_Dream::GelDB';
 Biochemists_Dream::Lane -> table('Lane');
 Biochemists_Dream::Lane -> columns(All => qw/Id Gel_Id Lane_Order Error_Description Mol_Mass_Cal_Lane Quantity_Std_Cal_Lane Quantity_Std_Name Quantity_Std_Amount
-                                   Quantity_Std_Units Quantity_Std_Size Ladder_Id Captured_Protein_Id Ph Over_Expressed Tag_Location Tag_Type Antibody Other_Capture Notes/);
+                                   Quantity_Std_Units Quantity_Std_Size Ladder_Id Captured_Protein_Id Ph Over_Expressed Tag_Location Tag_Type Antibody Other_Capture Notes Single_Reagent_Flag MS_Search_Engine MS_File_Suffix/);
 Biochemists_Dream::Lane -> has_many(bands => 'Biochemists_Dream::Band', { cascade => 'None' });
 Biochemists_Dream::Lane -> has_many(lane_reagents => 'Biochemists_Dream::Lane_Reagents', { cascade => 'None' });
 Biochemists_Dream::Lane -> has_many(reagents => ['Biochemists_Dream::Lane_Reagents' => 'Reagent_Id']);
