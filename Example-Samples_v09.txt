@@ -1,0 +1,7 @@
+Gel file name	Lane # on gel	Total # of lanes on gel	Buffer	Buffer Concentration	Buffer Unit	Salt	Salt Concentration	Salt Unit	Detergent	Detergent Concentration	Detergent Unit	Other	Other Concentration	Other Unit	pH	Mass Ladder	Quantity Std	Over-expressed	Protein Systematic Name	Tag Type	Tag Location	Antibody	Other Capture	Notes   	Single Reagent Flag
+20110502_exampleGel_1	1	26														"250, 150, 100, 75, 50, 37, 25, 20, 15, 10"									Yes
+20110502_exampleGel_1	26	26															"BSA, 66.5, 100, ng"								Yes
+20110502_exampleGel_1	2	26	TRIS-Cl	40	mM				Triton X-100	15	mM				8			no	YOR098C	SpA	C-term	Rabbit IgG			Yes
+20110502_exampleGel_1	4	26	TRIS-Cl	40	mM	NaCl	300	mM	Triton X-100	15	mM	PEG 1K	2	% w/v	8			no	NP_001272974.1	LAP (PMC2871289)	C-term	Llama polyclonal anti-GFP (PMC3605737)	"Tandem purified with S-protein (EMD, 69704)"		Yes
+20110502_exampleGel_1	6	26	TRIS-Cl	40	mM	Na2SO4	50	mM	Triton X-100	15	mM				8			no	NP_001137450.1	3xFLAG	C-term	"Mouse monoclonal anti-FLAG M2 (Sigma, F3165) "			Yes
+20110502_exampleGel_1	8	26	TRIS-Cl	40	mM	Na2SO4	50	mM	Triton X-100	15	mM				8			yes	EAL23816.1	EGFP	N-term	anti-GFP nanobody (10.1074/mcp.M700342-MCP200)			Yes
