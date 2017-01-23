@@ -248,7 +248,7 @@ if($new_tables)
 		Antibody VARCHAR(255),
 		Other_Capture VARCHAR(255),
 		Notes VARCHAR(255),
-		Single_Reactant_Flag TINYINT(1),
+		Single_Reagent_Flag TINYINT(1),
 		MS_Search_Engine VARCHAR(32),
 		MS_File_Suffix VARCHAR(10),
 		PRIMARY KEY (Id),
