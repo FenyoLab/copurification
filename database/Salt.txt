@@ -80,6 +80,7 @@ Sodium Tetraborate	Na2B4O7
 Sodium thiocyanate	NaSCN
 Sodium Thiosulfate	Na2S2O3
 Tacsimate	Tacsimate
+tetramethylammonium acetate	4meN Acet
 tri-Ammonium citrate	(NH4)3 Cit
 tri-Lithium citrate	Li3 Cit
 tri-Potassium citrate	K3 Cit
