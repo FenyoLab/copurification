@@ -40,6 +40,7 @@ Tacsimate	Tacsimate
 TAPS	TAPS
 TES	TES
 TRICINE	TRICINE
+Triethanolamine-Cl     3EtOHAm-Cl
 TRIS-Cl	TRIS-Cl
 TRIS-Acetate	TRIS Acet
 TRIS-Maleate	TRIS Male
