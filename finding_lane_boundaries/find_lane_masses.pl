@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe -d
+#!c:/perl/bin/perl.exe 
 
 #    find_lane_masses.pl - Finds the masses/amounts of the bands in the lanes given a gel image file name 
 #    uses mass/amount calibration data from the input calibration file
