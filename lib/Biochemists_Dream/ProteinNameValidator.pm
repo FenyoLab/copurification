@@ -1,9 +1,9 @@
-#!c:/perl/bin/perl.exe
+#!c:/perl/bin/perl.exe 
 
 #    (Biochemists_Dream::ProteinNameValidator) ProteinNameValidator.pm - validates Protein Systematic Names
 #    online at www.ncbi.nlm.nih.gov & yeastmine.yeastgenome.org/yeastmine/service
 #
-#    Copyright (C) 2015  Sarah Keegan
+#    Copyright (C) 2017  Sarah Keegan
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -57,11 +57,8 @@ our @EXPORT_OK = qw();
 
 # functions
 
-#NOTE: should change ncbi access to use fasta file as in below string, for protein NP_057174.1
-#http://www.ncbi.nlm.nih.gov/protein/NP_057174.1?report=fasta&log$=seqview&format=text
-
 sub validate
-{#
+{
     my $db_name = $_[0];
     my $name = $_[1];
     my $species = $_[2];
@@ -78,7 +75,7 @@ sub validate
     }
     elsif($db_name eq 'GenBank')
     {
-        $ret = validate_genbank_protein($name, $common_name, $version, $species);
+        $ret = validate_refseq($name, $common_name, $version, $species);
         if (!$ret) { $ret = validate_genbank_gene($name, $common_name, $version, $species); }
     }
     elsif($db_name eq 'MGI')
@@ -97,37 +94,40 @@ sub validate_refseq
     my $name = $_[0];
     my $species = $_[3];
     $_[2] = "";
-    my $query_str = 'http://www.ncbi.nlm.nih.gov/protein/' . $name;
+    
+    #https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=NP_001001998.1&rettype=fasta&retmode=text
+    my $query_str = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=' . $name . '&rettype=fasta&retmode=text';
     
     my $content = get($query_str);
     my $found = 0;
     if(defined $content)
     {#parse fasta for organism, common name
-        while($content =~ s/NCBI Reference Sequence:\s*([^\s^<]+)[\s<]//)
+        #print $content;
+        if($content =~ />([^\s]+)\s([^\[]*)\s\[([^\]]+)\]/)
         {
-            my $t1 = $1; my $t2 = $t1; my $version = "";
-            if($t2 =~ s/\.([0-9]+)$//) 
+            my $input_name1 = $1; my $common_name = $2; my $input_species = $3; my $version = "";
+            my $input_name2 = $input_name1;
+            if($input_name2 =~ s/\.([0-9]+)$//) 
             {#remove version number from the end, and save it
                 $version = $1;
             }
-            
-            if($name eq $t1 || $name eq $t2)
+            if($name eq $input_name1 || $name eq $input_name2)
             {
-                #if($content =~ /<h1>\s*(.+)\s*\[$species.*\]\s*<\/h1>/)
-                if($content =~ /<title>\s*(.+)\s*\[$species.*\]\s*(.+)\s*<\/title>/)
-                {
-                    $_[1] = $1;
+                if ($input_species =~ /^$species.*$/i)
+                {#matches species
+                    $_[1] = $common_name;
                     $found = 1;
                     
                     #if name from data file has no version number, use the one found in DB lookup
-                    if($version && $name eq $t2) 
+                    if($version && $name eq $input_name2) 
                     { $_[2] = $version; }
-                    
-                    last;
-                }
-            }  
+                }  
+            }
+            
         }
+        
     }
+    
     if($found) { return 1; }
     else { return 0; }
 }
@@ -137,81 +137,41 @@ sub validate_genbank_gene
     my $name = $_[0];
     my $species = $_[3];
     $_[2] = "";
-    my $query_str = 'http://www.ncbi.nlm.nih.gov/gene/' . $name;
+    
+    #https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=gene&id=7157&rettype=gene_table&retmode=text
+    my $query_str = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=gene&id=' . $name . '&rettype=gene_table&retmode=text';
     
     my $content = get($query_str);
     my $found = 0;
     if(defined $content)
-    {#parse fasta for organism, common name
-        #<span class="geneid">Gene ID: 10179, updated on 26-Jan-2014</span>
-        #while($content =~ s/Gene ID:\s*([^\s^<^,]+)//)
-        while($content =~ s/GenBank:\s*([^\s^<^,]+)//)
+    {
+        #print $content;
+        if($content =~ /^([^\[]+)\[([^\]]+)\][\n\r]+Gene ID:\s*([^,]+)/i)
         {
-            my $t1 = $1; my $t2 = $t1; my $version = "";
-            if($t2 =~ s/\.([0-9]+)$//) 
+            my $common_name = $1; my $input_species = $2; my $input_name1 = $3;
+            my $input_name2 = $input_name1; my $version = "";
+            if($input_name2 =~ s/\.([0-9]+)$//) 
             {#remove version number from the end, and save it
                 $version = $1;
             }
-            
-            if($name eq $t1 || $name eq $t2)
+            if($name eq $input_name1 || $name eq $input_name2)
             {
-                #<title>RBM7 RNA binding motif protein 7 [Homo sapiens (human)] - Gene - NCBI</title>
-                if($content =~ /<title>\s*(.+)\s*\[$species.*\]\s*-\s*Gene\s*-\s*NCBI\s*<\/title>/)
-                {
-                    $_[1] = $1;
+                if ($input_species =~ /^$species.*$/i)
+                {#matches species
+                    $_[1] = $common_name;
                     $found = 1;
                     
                     #if name from data file has no version number, use the one found in DB lookup
-                    if($version && $name eq $t2) 
+                    if($version && $name eq $input_name2) 
                     { $_[2] = $version; }
-                    
-                    last;
                 }
-            }  
+            }   
         }
+        
     }
     if($found) { return 1; }
     else { return 0; }
     
-}
-
-sub validate_genbank_protein
-{
-    my $name = $_[0];
-    my $species = $_[3];
-    $_[2] = "";
-    my $query_str = 'http://www.ncbi.nlm.nih.gov/protein/' . $name;
-    
-    my $content = get($query_str);
-    my $found = 0;
-    if(defined $content)
-    {#parse fasta for organism, common name
-        while($content =~ s/GenBank:\s*([^\s^<]+)[\s<]//)
-        {
-            my $t1 = $1; my $t2 = $t1; my $version = "";
-            if($t2 =~ s/\.([0-9]+)$//) 
-            {#remove version number from the end, and save it
-                $version = $1;
-            }
-            
-            if($name eq $t1 || $name eq $t2)
-            {
-                if($content =~ /<h1>\s*(.+)\s*\[$species.*\]\s*<\/h1>/)
-                {
-                    $_[1] = $1;
-                    $found = 1;
-                    
-                    #if name from data file has no version number, use the one found in DB lookup
-                    if($version && $name eq $t2) 
-                    { $_[2] = $version; }
-                    
-                    last;
-                }
-            }  
-        }
-    }
-    if($found) { return 1; }
-    else { return 0; }
 }
 
 sub validate_sgd
