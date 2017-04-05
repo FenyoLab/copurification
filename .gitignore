@@ -1,3 +1,4 @@
 *.pyc
 *.komodoproject
 data_v2_0/
+*.db

@@ -42,7 +42,6 @@ use Biochemists_Dream::GelDataFileReader;
 use Biochemists_Dream::GelDataFileReader qw(validate_protein_name);
 #use Net::SMTP;
 
-
 my $DEVELOPER_VERSION = 1;
 #my $DEVELOPER_VERSION = 0;
 my $DEVELOPER_LOGFILE = "dev_log.txt";
@@ -159,7 +158,7 @@ eval #for exception handling
 and protein staining. We store the conditions of the experiment and link to the resulting banding patterns so purifications under
 different conditions can be compared to one another.
 <br><br>
-<b>The server is down for maintenance from Wednesday, August 26 until Monday August 31, 2015.  Thank you for your patience.</b>
+<b>copurification.org is down for maintenance while we move to a new server.  We anticipate that we will be back up and running by Monday (1/30).  Thank you for your patience!  </b>
 <br><Br><Br><br><br></p></td></tr>
 </body>
 </html>
@@ -4840,8 +4839,9 @@ sub process_experiment_gels
 	#create background process to run the gel processing...
 	# !to do ! check that this was successful, or return error msg!
 	my $proc1 = Proc::Background->new("perl.exe", "process_experiment_gels.pl", "$exp_id", "$exp_dir");
+	
 	#process_experiment_gels
-	#my $retval = system(qq!"process_experiment_gels1.pl" "$exp_id" "$exp_dir"!);
+	#my $retval = system(qq!"perl.exe" "process_experiment_gels.pl" "$exp_id" "$exp_dir"!);
 
 	return "";
 

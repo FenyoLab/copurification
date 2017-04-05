@@ -25,6 +25,8 @@
 # 3) find_lane_masses.pl - to calculate the lane masses for each lane (found by find_lane_boundaries.pl)
 # 4)  - NOT IMPLEMENTED! - calculate_lane_scores.pl - calculates a match score for each lane and creates a lane match image for all lanes in all gels in the given directory
 
+#open a log file, write error messages, and 'DONE' indicator when exiting, so that CGI program can check for progress or print error text to user
+
 use lib "../lib";
 
 #use warnings;
@@ -64,7 +66,7 @@ eval
 	#must connect to DB to get the number of lanes (e.g. 26)
 	my $exp = Biochemists_Dream::Experiment -> retrieve($experiment_id);
 	my @gels = $exp -> gels();
-	my @file_names = <$experiment_dir/$GEL_DATA_FILE_NAME_ROOT*.*>; 
+	my @file_names = <"$experiment_dir/$GEL_DATA_FILE_NAME_ROOT*.*">; 
 	my $cur_gel_img_file;
 	my $cur_gel_txt_file;
 	my $n_cur_gel_txt_file; my $nn_cur_gel_txt_file;
@@ -209,7 +211,7 @@ eval
 		else { print OUT "0\n"; }
 		
 		close(OUT);
-		
+		# "perl.exe" "../finding_lane_boundaries/find_lane_masses.pl" "C:\Shared Projects\copurification\data_v2_0\3\Experiments\344" "gel1" "26" "calibration.txt"
 		#call find_lane_masses
 		if ($first_gel)
 		{
