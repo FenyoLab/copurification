@@ -1,71 +1,9 @@
-#!c:/perl/bin/perl.exe -d
+#!/usr/bin/perl
 
-#    (Biochemists_Dream::Common) Common.pm - provides global variables, functions useful to other modules of the program
-#
-#    Copyright (C) 2014  Sarah Keegan
-#
-#    This program is free software: you can redistribute it and/or modify
-#    it under the terms of the GNU General Public License as published by
-#    the Free Software Foundation, either version 3 of the License, or
-#    (at your option) any later version.
-#
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU General Public License for more details.
-#
-#    You should have received a copy of the GNU General Public License
-#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use strict;
 use warnings;
+use strict;
+use File::Util;
 
-package Biochemists_Dream::Common; # assumes Some/Module.pm
-
-BEGIN {
-
-require Exporter;
-
-# set the version for version checking
-our $VERSION = 1.00;
-
-# Inherit from Exporter to export functions and variables
-our @ISA = qw(Exporter);
-
-# Functions and variables which are exported by default
-#our @EXPORT = qw(func1 func2);
-our @EXPORT = qw($DATA_DIR $SETTINGS_FILE $EXP_DATA_FILE_NAME_ROOT $GEL_DATA_FILE_NAME_ROOT $LADDER_FILE_NAME_ROOT $PROCESS_GELS_LOG_FILE_NAME $GEL_ERROR_LOG $BASE_DIR
-		 %ALLOWED_HTML_PARAM_NAMES %ALLOWED_EXP_PROC_FILE_TYPES %ALLOWED_GEL_DETAILS_FILE_TYPES $IMAGEMAGICK_DIR $WKHTMLTOPDF_DIR $HOSTNAME %ALLOWED_GEL_FILE_TYPES %REAGENT_AMT_UNITS %QUANTITY_STD_UNITS $LANE_OUTPUT_FILE_FORMAT $FIND_LANES_TEMP_DIR read_settings getConfig convert_to_mM);
-
-# Functions and variables which can be optionally exported
-#our @EXPORT_OK = qw($Var1 %Hashit func3);
-our @EXPORT_OK = qw();
-
-}
-
-# exported package globals go here
-#our $Var1 = '';
-#our %Hashit = ();
-our $DATA_DIR = "data_v2_0";
-our $SETTINGS_FILE = "../settings.txt"; 
-our $EXP_DATA_FILE_NAME_ROOT = "data";
-our $GEL_DATA_FILE_NAME_ROOT = "gel";
-our $LADDER_FILE_NAME_ROOT = "ladder";
-our $PROCESS_GELS_LOG_FILE_NAME = "process_gels.log";
-our $GEL_ERROR_LOG = "../lane_error_log.txt";
-our $BASE_DIR = ""; 
-our $IMAGEMAGICK_DIR = "";
-our $WKHTMLTOPDF_DIR = "";
-our $HOSTNAME = "";
-our $LANE_OUTPUT_FILE_FORMAT = "#root#.lane-details.#i#.txt"; 
-our $FIND_LANES_TEMP_DIR = "lanes_details"; #for find_lane_boundaries and find_lane_masses - not implemented yet!
-
-#lists allowed gel file types - Q is if it can be Quantified
-our %ALLOWED_EXP_PROC_FILE_TYPES = ('txt' => 1, 'rtf' => 1, 'doc' => 1, 'docx' => 1); 
-our %ALLOWED_GEL_DETAILS_FILE_TYPES = ('txt' => 1, 'rtf' => 1, 'doc' => 1, 'xml' => 1, 'docx' => 1);
-our %ALLOWED_GEL_FILE_TYPES = ('tif' => 'Q', 'png' => 'Q', 'jpg' => 'NQ', 'bmp' => 'Q');
-our %REAGENT_AMT_UNITS = ('m' => 'mM', 'mm' => 'mM', 'um' => 'mM', 'µm' => 'mM', 'nm' => 'mM', 'pm' => 'mM', '% w/v' => '% w/v', '% v/v' => '% v/v', '%w/v' => '% w/v', '%v/v' => '% v/v', '%(w/v)' => '% w/v', '%(v/v)' => '% v/v');
-our %QUANTITY_STD_UNITS = ('mg' => 1, 'µg' => 1, 'ng' => 1, 'pg' => 1, 'ug' => 1);
 our $action_string = 'ContactList,LanesReport,OpenPublicView,LaneGrouping,Login,LoginPage,FAQ,HowTo,About,Contact,Home,SearchPublicGels,Choose Reagents,Set Ranges,Search,Search User,Logout,CreateAccount,Create Account,Search My Gels,Choose Reagent User,Set Ranges User,Add Project,Upload,Delete,ViewProject,Add Experiment,ViewExperiment,Make Public,MyProcedures,View / Edit,Create Procedure,Add MS Data,Del MS Data,Edit,DeleteFile,Cancel,Save Changes';
 our $mode_string = 'MESSAGE,Home,LOGIN,CREATE USER,USER CREATED,SEARCH,SEARCH 2,SEARCH 3,PUBLIC VIEW SEARCH,PUBLICVIEW SEARCH 2,PUBLICVIEW SEARCH 3,FAQ,HowTo,About,Contact,Home,MESSAGE,PROJECT,EXPERIMENT,QUERY,QUERY2,QUERY3,USER,USER UPDATED,PROCEDURES,FRAME1,FRAME2,FRAME3,PUBLIC1,PUBLIC2,PRIVATE';
 
@@ -160,87 +98,158 @@ our %ALLOWED_HTML_PARAM_NAMES = ('action' => $action_string,
 	'list_include_Detergent' => '^[A-Za-z0-9\(\)\-\,\s]+$',
 	'list_include_Other' => '^[A-Za-z0-9\(\)\-\,\s]+$');
 
-# non-exported package globals go here
-# (they are still accessible as $Some::Module::stuff)
-#our @more = ();
-#our $stuff = '';
-
-# file-private lexicals go here, before any functions which use them
-#my $priv_var = '';
-#my %secret_hash = ();
-
-# here's a file-private function as a closure,
-# callable as $priv_func->();
-# my $priv_func = sub {
-# ...
-# };
-
-# make all your functions, whether exported or not;
-# remember to put something interesting in the {} stubs
-# sub func1 { ... }
-# sub func2 { ... }
-
-sub getConfig
+sub make_sql_safe_str
 {
-	open(SETTINGS_IN, "$SETTINGS_FILE") || return ('','','','');
-	my $db_name=''; my $db_user=''; my $db_pwd='';
-	while(<SETTINGS_IN>)
-	{
-		chomp();
-		if(/^DBNAME=(.*)$/) { $db_name = $1; }
-		elsif(/^DBUSER=(.*)$/) { $db_user = $1; }
-		elsif(/^USERPWD=(.*)$/) { $db_pwd = $1; }
-	}
-	close(SETTINGS_IN);
-	
-	return ('DBI:mysql:' . $db_name, $db_name, $db_user, $db_pwd);
+    #This function REMOVES the following characters: \x00, \n, \r, \, ', " and \x1a.
+    
+    my $input = shift;
+    $input =~ s/'//;
+    $input =~ s/"//;
+    $input =~ s/\n//;
+    $input =~ s/\r//;
+    $input =~ s/\\//;
+    $input =~ s/\x00//;
+    $input =~ s/\x1a//;
+    
+    return $input;
 }
 
-sub read_settings
+sub validate
 {
-	open(SETTINGS_IN, "$SETTINGS_FILE") || return $! . " ($SETTINGS_FILE)";
-	my $found = 0;
-	while(<SETTINGS_IN>)
-	{
-		chomp();
-		if(/^INSTALL_DIR=(.*)$/) { $BASE_DIR = $1; $found++; }
-		elsif(/^ImageMagick=(.*)$/) { $IMAGEMAGICK_DIR = $1; $found++; }
-		elsif(/^wkhtmltopdf=(.*)$/) { $WKHTMLTOPDF_DIR = $1; $found++; }
-		elsif(/^HOSTNAME=(.*)$/) { $HOSTNAME = $1; $found++; }
-	}
-	close(SETTINGS_IN);
-	if($found == 4) { return ""; }
-	else { return "Information missing from settings file: $SETTINGS_FILE.\n"; }
+    #check param name and value and returned escaped value OR if invalid return 0
+    my $param=shift;
+    my $value=shift;
+    
+    if (!$value) { return (1,''); } #allow for empty value
+    
+    if (defined $ALLOWED_HTML_PARAM_NAMES{$param})
+    {
+        my $code = $ALLOWED_HTML_PARAM_NAMES{$param};
+        my $first_char = substr($code, 0, 1);
+        my $last_char = substr($code, -1, 1);
+        if ($first_char eq '^' && $last_char eq '$')
+        { #it's a regex indicating the allowed string
+            
+            if ($value =~ /$code/)
+            {#valid, generate safe value (shouldn't be needed), and return
+                return (1,make_sql_safe_str($value)); 
+            }
+            else
+            {#invalid
+                #open(my $f, '>>', "$BASE_DIR/$DATA_DIR/input_validation_report.txt") || die "Failed to open file in param_check, Please contact support\@copurification.org.";
+                #print $f "Not valid: \'$param\' \'$value\'\n\n";
+                #close $f;
+                return (0,0);
+            }
+        }
+        elsif($first_char eq '-' && $last_char eq '-')
+        { #it's -TEXT-, -PASSWORD- or -FILENAME-
+            if($code eq '-TEXT-')
+            {#allow any chars for text (?)
+                return (1,make_sql_safe_string($value)); # important that the safe version is used for SQL
+            }
+            elsif($code eq '-PASSWORD-')
+            {#allow any chars for password (?)
+                return (1,$value); # no changing of password, it won't be sent to SQL, it is encoded first
+            }
+            elsif($code eq '-FILENAME-')
+            {
+                return (1,make_sql_safe_str(escape_filename($value))); # might as well check for valid file name as well
+            } 
+        }
+        else
+        { #it's a comma separated list of valid values
+            my @valid_values = split(',', $code);
+            foreach my $valid_value (@valid_values)
+            {
+                if ($value eq $valid_value)
+                {
+                    return (1,make_sql_safe_str($value)); #shouldn't be necessary here, but just to be safe
+                }
+            }
+            #if reach here, value is not valid
+            #open(my $f, '>>', "$BASE_DIR/$DATA_DIR/input_validation_report.txt") || die "Failed to open file in param_check, Please contact support\@copurification.org.";;
+            #print $f "Not valid: \'$param\' \'$value\'\n\n";
+            #close $f;
+            return (0,0);
+        }
+    }
+    else
+    {	
+        #open(my $f, '>>', "$BASE_DIR/$DATA_DIR/input_validation_report.txt") || die "Failed to open file in param_check, Please contact support\@copurification.org.";
+        #print $f "Not valid: \'$param\' \'$value\' (unkown parameter)\n\n";
+        #close $f;
+        return (0,0);
+    }
 }
 
-sub convert_to_mM
-{#units assumed to be in only lower case
-	my $amt = shift;
-	my $unit = shift;
-	
-	if($unit eq 'm')
-	{
-		$amt = $amt * 1000;
-	}
-	elsif($unit eq 'um' || $unit eq 'µm')
-	{
-		$amt = $amt / 1000;
-	}
-	elsif($unit eq 'nm')
-	{
-		$amt = $amt / 1000000;
-	}
-	elsif($unit eq 'pm')
-	{
-		$amt = $amt / 1000000000;
-	}
-	return $amt;
+sub param_check
+{
+    #throws exception if param or value is invalid
+    #else returns value and sql_escaped value
+    #except when called with no args then just returns param()
+    if (scalar(@_) > 0)
+    {
+	my $param_name = $_[0];
+        my $is_array = 0;
+        if (scalar(@_) > 1)
+        {
+            #2nd input tells whether return val is an array, if it is absent, assume scalar
+            if ($_[1] != 0)
+            {
+                $is_array = 1;
+            }
+        }
+        
+        if ($is_array)
+        {
+            my @values=param($param_name);
+            
+            my @safe_values;
+            my $invalid=0;
+            #check each value in array before returning...
+            foreach my $val (@values)
+            {
+                my ($is_valid,$safe_val) = validate($param_name, $val);
+                if (!$is_valid)
+                {
+			#invalid input or value
+			die "paramcheck() failed, Please contact support\@copurification.org.";
+                }
+                else
+                {
+                    push @safe_values, $safe_val;
+                }
+            }
+	    return @safe_values;
+        }
+        else
+        {
+            my $val = param($param_name);
+            my ($is_valid,$safe_val) = validate($param_name, $val);
+            if (!$is_valid)
+            {
+                #invalid input or value
+		die "paramcheck() failed, Please contact support\@copurification.org.";
+            }
+            else
+            {
+                return $safe_val;
+            }
+        }
+    }
+    else
+    {
+	my @values=param();
+	return @values;
+    }
 }
 
-# this one isn't exported, but could be called directly
-# as Some::Module::func3()
-#sub func3 { ... }
+sub param
+{
+    return 'Home';
+}
 
-END { ; } # module clean-up code here (global destructor)
+my $ret_val = param_check('mode');
 
-1; # don't forget to return a true value from the file
+print $ret_val;
