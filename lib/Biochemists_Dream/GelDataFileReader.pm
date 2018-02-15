@@ -245,7 +245,7 @@ sub read_file
 		{
 			if(!defined $columns_found{$_})
 			{#add error message for the column that's not found
-				push @read_error_message, "$_ was not found in the header.  It is a mandatory column.  Please see the template for help.";
+				push @read_error_message, "'$_' was not found in the header.  It is a mandatory column.  Please see the template for help.";
 			}
 		}
 		
@@ -327,14 +327,14 @@ sub read_file
 				}
 				else
 				{
-					push @read_error_message, "Line $line_i: Gel file name does not match a gel image file name.";
+					push @read_error_message, "Line $line_i: 'Gel file name' does not match a gel image file name.";
 					next;
 				}
 				
 			}
 			else
 			{#error, 'Gel file name' is mandatory
-				push @read_error_message, "Line $line_i: Missing a value for Gel file name.  This is a mandatory field.";
+				push @read_error_message, "Line $line_i: Missing a value for 'Gel file name'.  This is a mandatory field.";
 				next;
 			}
 			
@@ -349,7 +349,7 @@ sub read_file
 			{
 				if(defined $lanes_found[$cur_gel_num]{$cur_value})
 				{#a line for this lane was already encountered - error!
-					push @read_error_message, "Line $line_i: Repeated Lane # on gel: $cur_value, for gel $gel_file_names[$cur_gel_num].";
+					push @read_error_message, "Line $line_i: Repeated 'Lane # on gel' ($cur_value) for gel $gel_file_names[$cur_gel_num].";
 					next;
 				}
 				else
@@ -378,7 +378,7 @@ sub read_file
 			}
 			else
 			{#error, 'Lane # on gel' is mandatory
-				push @read_error_message, "Line $line_i: Lane # on gel is missing or unrecognized.  This is a mandatory field.";
+				push @read_error_message, "Line $line_i: 'Lane # on gel' is missing/unrecognized.  This is a mandatory field.";
 				next;
 			}
 			
@@ -408,7 +408,7 @@ sub read_file
 					}
 					if($err || $#{$mass_ladders[$cur_gel_num][$cur_lane_num]} == -1)
 					{#if error or array is empty
-						push @read_error_message, "Line $line_i: Mass ladder is not in the correct format.";
+						push @read_error_message, "Line $line_i: 'Mass ladder' is not in the correct format.";
 						$mass_ladders[$cur_gel_num][$cur_lane_num] = ();
 						next; #not checking rest of line if error is in calibration lane
 					}
@@ -424,7 +424,7 @@ sub read_file
 				{
 					#if(!$quantifiable) #don't give error but it will not be used
 					#{
-					#	push @read_error_message, "Line $line_i: Quantity std not allowed for this type of gel file, ${$file_extension_map}{$gel_file_names[$cur_gel_num]} files cannot be quantified.";
+					#	push @read_error_message, "Line $line_i: 'Quantity std' not allowed for this type of gel file (${$file_extension_map}{$gel_file_names[$cur_gel_num]} files cannot be quantified).";
 					#	next;
 					#}
 					
@@ -459,13 +459,13 @@ sub read_file
 								}
 								else
 								{
-									push @read_error_message, "Line $line_i: Quantity std units must be the same for all lanes in the gel.";
+									push @read_error_message, "Line $line_i: 'Quantity std' units must be the same for all lanes in the gel.";
 									next; #not checking rest of line if error is in calibration lane
 								}
 							}
 							else
 							{
-								push @read_error_message, "Line $line_i: Quantity std units invalid.";
+								push @read_error_message, "Line $line_i: 'Quantity std' units invalid.";
 								next; #not checking rest of line if error is in calibration lane
 							}
 							#mass 
@@ -473,19 +473,19 @@ sub read_file
 							{ $qty_std_data[$cur_gel_num][$cur_lane_num][3] = $mass; } 
 							else
 							{
-								push @read_error_message, "Line $line_i: Quantity std mass is not in the correct format.";
+								push @read_error_message, "Line $line_i: 'Quantity std' mass is not in the correct format.";
 								next; #not checking rest of line if error is in calibration lane
 							}
 						}
 						else
 						{
-							push @read_error_message, "Line $line_i: Quantity std amount is not in the correct format.";
+							push @read_error_message, "Line $line_i: 'Quantity std' amount is not in the correct format.";
 							next; #not checking rest of line if error is in calibration lane
 						}
 					}
 					else
 					{
-						push @read_error_message, "Line $line_i: Quantity std is not in the correct format.";
+						push @read_error_message, "Line $line_i: 'Quantity std' is not in the correct format.";
 						next; #not checking rest of line if error is in calibration lane
 					}
 				}
@@ -502,7 +502,7 @@ sub read_file
 				my $ret; my $id_in_db; my $common_name;
 				if(!($ret = validate_protein_name($cur_value, $id_in_db, $common_name)))
 				{#name is not valid, can't be verified 
-					push @read_error_message, "Line $line_i: The column Protein Systematic Name has an unrecognized value: $cur_value.";
+					push @read_error_message, "Line $line_i: The column 'Protein Systematic Name' has an unrecognized value ($cur_value).";
 				}
 				elsif($ret > 0)
 				{#name is valid, and its already in the DB
@@ -517,7 +517,7 @@ sub read_file
 				}
 			}
 			elsif(!$calibration_lane) #error, mandatory field
-			{ push @read_error_message, "Line $line_i: Missing a value for Protein systematic name.  This is a mandatory field."; }
+			{ push @read_error_message, "Line $line_i: Missing a value for 'Protein systematic name'.  This is a mandatory field."; }
 	
 			#the next columns must be validated from tables in the DB: - only one now....used to be more...
 			foreach (keys %validation_tables)
@@ -533,10 +533,10 @@ sub read_file
 						{
 							if($_ eq 'tag location') { $tag_location[$cur_gel_num][$cur_lane_num] = $cur_value; }
 						}
-						else { push @read_error_message, "Line $line_i: The column $_ has an unrecognized value: $cur_value - to suggest a new value be added for $_, please email the site administrator."; }
+						else { push @read_error_message, "Line $line_i: The column '$_' has an unrecognized value ($cur_value) - to suggest a new value be added for '$_', please email the site administrator."; }
 					}
 					elsif($MANDATORY_COLUMNS_IN_DATA{$_} && !$calibration_lane) #error, mandatory field
-					{ push @read_error_message, "Line $line_i: Missing a value for $_.  This is a mandatory field."; }
+					{ push @read_error_message, "Line $line_i: Missing a value for '$_'.  This is a mandatory field."; }
 				}
 			}
 			
@@ -555,10 +555,10 @@ sub read_file
 					{ $over_expressed[$cur_gel_num][$cur_lane_num] = undef; }
 				}
 				else
-				{ push @read_error_message, "Line $line_i: Over-expressed is not in the correct format, acceptable values are: Yes, No, Unknown."; }
+				{ push @read_error_message, "Line $line_i: 'Over-expressed' is not in the correct format (acceptable values are: Yes, No, Unknown)."; }
 			}
 			elsif(!$calibration_lane) #error, mandatory field
-			{ push @read_error_message, "Line $line_i: Missing a value for Over-expressed.  This is a mandatory field."; }
+			{ push @read_error_message, "Line $line_i: Missing a value for 'Over-expressed'.  This is a mandatory field."; }
 			
 			#single_reagent_flag - mandatory if(!$calibration_lane)
 			$cur_value = $cur_values[$columns_found{"single reagent flag"}]; 
@@ -573,10 +573,10 @@ sub read_file
 					{ $single_reagent_flag[$cur_gel_num][$cur_lane_num] = 0; }
 				}
 				else
-				{ push @read_error_message, "Line $line_i: Single reagent flag is not in the correct format, acceptable values are: Yes, No."; }
+				{ push @read_error_message, "Line $line_i: 'Single reagent flag' is not in the correct format (acceptable values are: Yes, No) $cur_value."; }
 			}
 			elsif(!$calibration_lane) #error, mandatory field
-			{ push @read_error_message, "Line $line_i: Missing a value for Single reagent flag.  This is a mandatory field."; }
+			{ push @read_error_message, "Line $line_i: Missing a value for 'Single-reagent-flag'.  This is a mandatory field."; }
 			
 			#antibody - not mandatory
 			my $no_antibody = 0;
@@ -595,10 +595,10 @@ sub read_file
 				if($cur_value)
 				{ $other_capture[$cur_gel_num][$cur_lane_num] = $cur_value; }
 				#one of antibody or othere capture must be present
-				elsif($no_antibody && !$calibration_lane) { push @read_error_message, "Line $line_i: Both Antibody and Other Capture cannot be blank for a lane."; }
+				elsif($no_antibody && !$calibration_lane) { push @read_error_message, "Line $line_i: Both 'Antibody' and 'Other Capture' cannot be blank for a lane."; }
 			}
 			#one of antibody or othere capture must be present
-			elsif($no_antibody && !$calibration_lane) { push @read_error_message, "Line $line_i: Both Antibody and Other Capture cannot be blank for a lane."; }
+			elsif($no_antibody && !$calibration_lane) { push @read_error_message, "Line $line_i: Both 'Antibody' and 'Other Capture' cannot be blank for a lane."; }
 			
 			#tag type - not mandatory
 			if(defined $columns_found{"tag type"})
@@ -611,7 +611,7 @@ sub read_file
 					$cur_value = $cur_values[$columns_found{"tag location"}];
 					if($cur_value) 
 					{ $tag_location[$cur_gel_num][$cur_lane_num] = $cur_value; }
-					else { push @read_error_message, "Line $line_i: Missing a value for Tag location.  This is a mandatory field when Tag type is specified."; }
+					else { push @read_error_message, "Line $line_i: Missing a value for 'Tag location'.  This is a mandatory field when 'Tag type' is specified."; }
 				}
 			}
 			
@@ -624,7 +624,7 @@ sub read_file
 					if($cur_value =~ /^[0-9\.\s]+$/ && $cur_value > 0 && $cur_value <= 14)
 					{ $ph[$cur_gel_num][$cur_lane_num] = $cur_value; }
 					else
-					{ push @read_error_message, "Line $line_i: Ph is not in the correct format."; }
+					{ push @read_error_message, "Line $line_i: 'Ph' is not in the correct format."; }
 				}
 			}
 			
@@ -647,7 +647,7 @@ sub read_file
 					if($cur_value)
 					{
 						if(${$valid_reagents{$cur_column}}{lc $cur_value}) { ${$reagents{$cur_column}}[$cur_gel_num][$cur_lane_num][$reagent_i][0] = ${$valid_reagents{$cur_column}}{lc $cur_value}; }
-						else { push @read_error_message, "Line $line_i: The column $cur_column has an unrecognized value, $cur_value - to suggest a new value be added for $cur_column, please email the site administrator."; }
+						else { push @read_error_message, "Line $line_i: The column '$cur_column' has an unrecognized value ($cur_value) - to suggest a new value be added for '$cur_column', please email the site administrator."; }
 			
 						#salt concentration
 						$cur_value = $cur_values[$_+1];
@@ -671,13 +671,13 @@ sub read_file
 									${$reagents{$cur_column}}[$cur_gel_num][$cur_lane_num][$reagent_i][2] = $REAGENT_AMT_UNITS{$cur_value};
 								} 
 								else
-								{ push @read_error_message, "Line $line_i: $cur_column unit, $orig invalid."; }	
+								{ push @read_error_message, "Line $line_i: '$cur_column unit' ($orig) invalid."; }	
 							}
 							else
-							{ push @read_error_message, "Line $line_i: $cur_column unit is missing."; }
+							{ push @read_error_message, "Line $line_i: '$cur_column unit' is missing."; }
 						}
 						else
-						{ push @read_error_message, "Line $line_i: $cur_column concentration is missing or invalid."; }
+						{ push @read_error_message, "Line $line_i: '$cur_column concentration' is missing/invalid."; }
 						$reagent_i++;
 					}
 				}
@@ -696,13 +696,13 @@ sub read_file
 			if(!$num_lanes[$i])
 			{
 				# Total # of lanes on gel  - must be present atleast once per gel
-				push @read_error_message, "Missing Total # of lanes on gel for gel $gel_file_names[$i].";
+				push @read_error_message, "Missing 'Total # of lanes on gel' for gel $gel_file_names[$i].";
 			}
 			else
 			{
 				if($lanes_count[$i] > $num_lanes[$i])
 				{#can't have more lanes than 'Total # lanes on gel', can have less because of blank lanes
-					push @read_error_message, "Too many lanes for gel $gel_file_names[$i].  It does not match Total # of lanes on gel ($num_lanes[$i]).";
+					push @read_error_message, "Too many lanes for gel $gel_file_names[$i].  It does not match 'Total # of lanes on gel' ($num_lanes[$i]).";
 				}
 				
 				$valid_lane_numbers[$i] = ();
@@ -710,7 +710,7 @@ sub read_file
 				{#'Lane # on gel' must be from 1 to 'Total # lanes on gel', if it's outside that range give error
 					if($_ <= 0 || $_ > $num_lanes[$i])
 					{
-						push @read_error_message, "Lane # on gel must be in the range from 1 to Total # of lanes on gel for gel $gel_file_names[$i].";
+						push @read_error_message, "'Lane # on gel' must be in the range from 1 to 'Total # of lanes on gel' for gel $gel_file_names[$i].";
 					}
 					#add this lane number to the list of existing lane numbers
 					push @{$valid_lane_numbers[$i]}, $_;
@@ -733,7 +733,7 @@ sub read_file
 				if($#{$mass_ladders[$i][$_]} >= 0)
 				{ $found_mass_cal = 1; }
 			}
-			if(!$found_mass_cal) { push @read_error_message, "Mass ladder not found for gel $gel_file_names[$i].  Atleast one mass calibration lane is required for each gel."; }
+			if(!$found_mass_cal) { push @read_error_message, "'Mass ladder' not found for gel $gel_file_names[$i].  Atleast one mass calibration lane is required for each gel."; }
 		}
 		
 		##########
@@ -752,7 +752,7 @@ sub read_file
 		return 0;
 	}
 	
-    close(GELIN);
+    	close(GELIN);
 	$dbh->disconnect();
 	return 1;
 }
@@ -999,7 +999,7 @@ sub add_reagent_header_error_msg
 	$next_col_name =~ s/ concentration//;
 	$next_col_name =~ s/ unit//;
 	
-	push @read_error_message, "There was a problem reading the $next_col_name reagent headers in the file.  The headers for each $next_col_name reagent: $next_col_name, $next_col_name concentration, $next_col_name unit, must be together and in the exact order shown in the template.";
+	push @read_error_message, "There was a problem reading the $next_col_name reagent headers in the file.  The headers for the each $next_col_name reagent ('$next_col_name', '$next_col_name concentration', '$next_col_name unit') must be together and in the exact order shown in the template.";
 }
 
 sub reset_gels
