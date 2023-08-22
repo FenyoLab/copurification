@@ -1,5 +1,5 @@
 use DBI;
-$dbh = DBI->connect('DBI:mysql:copur:db', 'root', 'qwerty',
+$dbh = DBI->connect('DBI:mysql:copur:db', '', '',
                     { RaiseError => 1, AutoCommit => 0 });
 $sth = $dbh->prepare("SELECT * FROM species");
  

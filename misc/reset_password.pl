@@ -9,9 +9,9 @@ use DBI;
 my $dbh;	   
 my $result;
 
-my $db_name = "96WellGels";
-my $db_admin_user = "96WellGelsAdmin";
-my $db_admin_pwd = "proteomics";
+my $db_name = "";
+my $db_admin_user = "";
+my $db_admin_pwd = "";
 
 my $user_id; my $new_pwd;
 
