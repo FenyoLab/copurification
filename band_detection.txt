@@ -1,0 +1,31 @@
+Background subtraction:
+1) divide lane intensities into 20 bins, find min. in each bin (y_min)
+2) calculate y_background at each point, k:
+	y_background[k] = y_min[b] + (y_min[b-1]*(1-f) + y_min[b+1]*(f))/2 
+	where b = int(k/y_max*20) i.e. bin of k (1-20) and
+	      f = k/y-max*20 - int(k/y_max*20) i.e. how close k is to the next bin
+3)average every 5 points for y_background:
+	y_background[k] = y_background[k-2] + y_background[k-1] + y_background[k] + y_background[k+1] + y_bacground[k+2]
+
+*The middle 50% of the lane is used for peak detection but I do read in the entire lane
+for calculating Intensity of the band, however, I subtract the background that was found for the
+middle 50% not for the whole lane.
+
+Band detection:
+y_signal = y_intensity - y_background
+1) calculate y_sum, y_centroid and y_max from y_signal for every 3 pixels 
+	y_sum = y_signal[k-1] + y_signal[k] + y_signal[k+1]
+	etc...
+2) sort y_sum largest to smallest
+3) for each sum in y_sum:
+	// apply a few filters and if it passes thers is a 'band' identified at position k
+	a) check y_signal[k] at k+1, k-1, if it's larger, adjust k
+	b) check y_sum[k] and y_signal[k] > HARD_CUTOFF 
+	c) also, if y_sum[k] and y_signal[k] are < SOFT_CUTOFF, 
+		check if the difference between y_signal[k] and surrounding is large enough to distinguish band
+		at low intensity this is checked
+4) if passes filters, determine start/end of band:
+	uses 25% of y_signal[k] as band cutoff
+	also band must be atleast 3 pixels wide
+	also must have a min. separation from other bands of 1 pixel
+			

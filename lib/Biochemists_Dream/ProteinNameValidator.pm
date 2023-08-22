@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe 
+#!/usr/bin/perl
 
 #    (Biochemists_Dream::ProteinNameValidator) ProteinNameValidator.pm - validates Protein Systematic Names
 #    online at www.ncbi.nlm.nih.gov & yeastmine.yeastgenome.org/yeastmine/service
@@ -19,14 +19,15 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
-use warnings;
+#use warnings;
 
 package Biochemists_Dream::ProteinNameValidator; 
 #given a protein 'systematic' name, and a database name,
 #this package will link to the db and check that this protein name exists
 #and also get the protein common name to fill in the database
 
-use LWP::Simple;
+#use LWP::Simple;
+use LWP::UserAgent;
 use Webservice::InterMine::Simple;
 
 use lib "../";
@@ -89,18 +90,50 @@ sub validate
     return $ret;
 }
 
+sub get_url
+{
+	my $url = shift;
+	my $ua = LWP::UserAgent->new( ssl_opts => { verify_hostname => 0 } );
+    $ua->timeout(0.1);
+    
+	my $response = $ua->get($url);
+	if ( $response->is_success ) 
+	{
+		return $response->decoded_content;
+	}
+	else
+    {
+        #die $response->status_line;
+        return "";
+    }
+}
+
 sub validate_refseq
 {
     my $name = $_[0];
     my $species = $_[3];
     $_[2] = "";
     
-    #https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=NP_001001998.1&rettype=fasta&retmode=text
-    my $query_str = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=' . $name . '&rettype=fasta&retmode=text';
+    #https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=9967&rettype=fasta&retmode=text&api_key=0bfda73ede6d8456979a51783a63ad69fa09
+    #my $query_str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=AAB59367&rettype=fasta&retmode=text&api_key=0bfda73ede6d8456979a51783a63ad69fa09";
     
-    my $content = get($query_str);
+    my $query_str = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=protein&id=' . $name . '&rettype=fasta&retmode=text&api_key=0bfda73ede6d8456979a51783a63ad69fa09';
+    
+    #open(DEVEL_OUT2, ">>/var/www/data_v2_0/dev_log4.txt");
+    #print DEVEL_OUT2 "refseq: Calling wget: $query_str.\n";
+    #close(DEVEL_OUT2);
+    
+    my $content="";
+    
+    #my $content = get_url($query_str); # USE wget INSTEAD TO AVOID ISSUES WITH LWP/PERL 1/23/2022
+    my $content = `wget -qO - \"$query_str\"`;
+    
+    #open(DEVEL_OUT2, ">>/var/www/data_v2_0/dev_log4.txt");
+    #print DEVEL_OUT2 "refseq: Finished wget: $content.\n";
+    #close(DEVEL_OUT2);
+
     my $found = 0;
-    if(defined $content)
+    if($content) 
     {#parse fasta for organism, common name
         #print $content;
         if($content =~ />([^\s]+)\s([^\[]*)\s\[([^\]]+)\]/)
@@ -128,6 +161,10 @@ sub validate_refseq
         
     }
     
+    #open(DEVEL_OUT2, ">>/var/www/data_v2_0/dev_log4.txt");
+    #print DEVEL_OUT2 "refseq: found: $found.\n";
+    #close(DEVEL_OUT2);
+    
     if($found) { return 1; }
     else { return 0; }
 }
@@ -139,11 +176,18 @@ sub validate_genbank_gene
     $_[2] = "";
     
     #https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=gene&id=7157&rettype=gene_table&retmode=text
-    my $query_str = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=gene&id=' . $name . '&rettype=gene_table&retmode=text';
+    my $query_str = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=gene&id=' . $name . '&rettype=gene_table&retmode=text&api_key=0bfda73ede6d8456979a51783a63ad69fa09';
+    my $content="";
     
-    my $content = get($query_str);
+    #open(DEVEL_OUT2, ">>/var/www/data_v2_0/dev_log2.txt");
+    #print DEVEL_OUT2 "genbank: Calling get_url: $query_str, $content.\n";
+    #close(DEVEL_OUT2);
+    
+    #my $content = get_url($query_str);  # USE wget INSTEAD TO AVOID ISSUES WITH LWP/PERL 1/23/2022
+    my $content = `wget -qO - \"$query_str\"`;
+    
     my $found = 0;
-    if(defined $content)
+    if($content)
     {
         #print $content;
         if($content =~ /^([^\[]+)\[([^\]]+)\][\n\r]+Gene ID:\s*([^,]+)/i)

@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!/usr/bin/perl
 
 #    (Biochemists_Dream::GelDB) GelDB.pm - provides class interface to the database - uses Class::DBI
 #
@@ -20,7 +20,7 @@
 use lib "../";
 
 use strict;
-use warnings;
+#use warnings;
 
 ############# The base class of Class::DBI for our implementation ########################
 package Biochemists_Dream::GelDB;
@@ -31,6 +31,7 @@ use Biochemists_Dream::Common;
 my ($data_source, $db_name, $user, $password) = getConfig();
 
 Biochemists_Dream::GelDB -> connection($data_source, $user, $password);
+#Biochemists_Dream::GelDB -> connection('DBI:mysql:copur:db', 'root', 'qwerty');
 
 ############# The Lane_Reagents class ########################
 package Biochemists_Dream::Lane_Reagents;
@@ -78,7 +79,7 @@ Biochemists_Dream::Shared_Projects -> has_a(User_Id => 'Biochemists_Dream::User'
 package Biochemists_Dream::Band;
 use base 'Biochemists_Dream::GelDB';
 Biochemists_Dream::Band -> table('Band');
-Biochemists_Dream::Band -> columns(All => qw/Id Lane_Id Mass Start_Position End_Position Quantity Mass_Error Quantity_Error Captured_Protein/);
+Biochemists_Dream::Band -> columns(All => qw/Id Lane_Id Mass Start_Position End_Position Quantity Mass_Error Quantity_Error Captured_Protein Used_for_Protein_ID/);
 Biochemists_Dream::Band -> has_a(Lane_Id => 'Biochemists_Dream::Lane');
 Biochemists_Dream::Band -> has_many(proteins => ['Biochemists_Dream::Band_Protein' => 'Protein_Id']);
 
@@ -87,7 +88,7 @@ package Biochemists_Dream::Lane;
 use base 'Biochemists_Dream::GelDB';
 Biochemists_Dream::Lane -> table('Lane');
 Biochemists_Dream::Lane -> columns(All => qw/Id Gel_Id Lane_Order Error_Description Mol_Mass_Cal_Lane Quantity_Std_Cal_Lane Quantity_Std_Name Quantity_Std_Amount
-                                   Quantity_Std_Units Quantity_Std_Size Ladder_Id Captured_Protein_Id Ph Over_Expressed Tag_Location Tag_Type Antibody Other_Capture Notes Single_Reagent_Flag MS_Search_Engine MS_File_Suffix/);
+                                   Quantity_Std_Units Quantity_Std_Size Ladder_Id Captured_Protein_Id Ph Over_Expressed Tag_Location Tag_Type Antibody Other_Capture Notes Single_Reagent_Flag MS_Search_Engine MS_File_Suffix Elution_Method Elution_Reagent/);
 Biochemists_Dream::Lane -> has_many(bands => 'Biochemists_Dream::Band', { cascade => 'None' });
 Biochemists_Dream::Lane -> has_many(lane_reagents => 'Biochemists_Dream::Lane_Reagents', { cascade => 'None' });
 Biochemists_Dream::Lane -> has_many(reagents => ['Biochemists_Dream::Lane_Reagents' => 'Reagent_Id']);
@@ -100,7 +101,7 @@ Biochemists_Dream::Lane -> has_a(Tag_Location => 'Biochemists_Dream::Tag_Locatio
 package Biochemists_Dream::Gel;
 use base 'Biochemists_Dream::GelDB';
 Biochemists_Dream::Gel -> table('Gel');
-Biochemists_Dream::Gel -> columns(All => qw/Id Experiment_Id File_Id Num_Lanes Public Error_Description Display_Name File_Type Date_Submitted/);
+Biochemists_Dream::Gel -> columns(All => qw/Id Experiment_Id File_Id Num_Lanes Public Citation Error_Description Display_Name File_Type Date_Submitted XRef/);
 Biochemists_Dream::Gel -> has_many(lanes => 'Biochemists_Dream::Lane', { order_by => 'Lane_Order' }, { cascade => 'None' }); 
 Biochemists_Dream::Gel -> has_a(Experiment_Id => 'Biochemists_Dream::Experiment');
 

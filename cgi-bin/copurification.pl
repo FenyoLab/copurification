@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe 
+#!/usr/bin/perl
 #    copurification.pl - this module handles the CGI for copurification.org and executes queries to the database for the Gel Search functions
 #
 #    Copyright (C) 2015  Sarah Keegan
@@ -32,15 +32,21 @@
 
 use lib "../lib";
 
-use warnings;
+#use warnings;
 use strict;
+#use DateTime;
 use Biochemists_Dream::GelDB;
 use CGI ':standard';
 use Proc::Background;
-use Biochemists_Dream::Common;
+use Biochemists_Dream::Common; 
 use Biochemists_Dream::GelDataFileReader;
 use Biochemists_Dream::GelDataFileReader qw(validate_protein_name);
 #use Net::SMTP;
+use File::Util;
+#BA01252018 added for testing problems with this sub
+use File::Util qw(escape_filename);
+use File::Copy;
+
 
 my $DEVELOPER_VERSION = 1;
 #my $DEVELOPER_VERSION = 0;
@@ -61,10 +67,10 @@ my $PERFORM_GROUPING = 0;
 
 my $SERVER_DOWN = 0;
 
+STDOUT->autoflush(1);
+
 eval #for exception handling
 {
-	
-
 	#redirect stderr to a log file instead of letting it go to the Apache log file
 	*OLD_STDERR = *STDERR;
 	
@@ -86,7 +92,6 @@ eval #for exception handling
 		display_public_error_page("Cannot load settings file: $err.", 1);
 		exit(0);
 	}
-	
 	
 	
 	if($DEVELOPER_VERSION)
@@ -158,7 +163,7 @@ eval #for exception handling
 and protein staining. We store the conditions of the experiment and link to the resulting banding patterns so purifications under
 different conditions can be compared to one another.
 <br><br>
-<b>copurification.org is down for maintenance while we move to a new server.  We anticipate that we will be back up and running by Monday (1/30).  Thank you for your patience!  </b>
+<b>The server is down for maintenance from Wednesday, August 26 until Monday August 31, 2015.  Thank you for your patience.</b>
 <br><Br><Br><br><br></p></td></tr>
 </body>
 </html>
@@ -167,7 +172,7 @@ START_HTML
 	}
 	else
 	{
-		if(!param())
+		if(!param_check())
 		{#no posted data
 			#if logged in, private view:
 			if($g_user_id)
@@ -181,10 +186,208 @@ START_HTML
 		else
 		{#form data was posted: process the data
 			#get param list:
-			my @params = param();
-			my $action = param('action');
-			if(!$action) { $action = param('submit'); }
-			$g_frame = param('frame') || '';
+			my @params = param_check();
+			my $action = param_check('action');
+			if(!$action) { $action = param_check('submit'); }
+			$g_frame = param_check('frame') || '';
+			
+			## Special case for load_bands_for_lane ####
+			if ($action eq 'load_bands_for_lane')
+			{
+				print header(-type => 'text/plain');
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "***Loading bands for lane.***\n"; }
+				
+				my $lane_id = param_check('lane');
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "load bands: lane=$lane_id.\n"; }
+				
+				# don't check for user login since this is also used by the public search results view
+				# best way is to first check if public gel, and only if public gel then don't check for user (TODO)
+                
+				my $exclude = param_check('exclude');
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "load bands: exclude=$exclude.\n"; }
+				
+				my $lane = Biochemists_Dream::Lane -> retrieve("$lane_id");
+				my @bands = $lane -> bands();
+				
+				my $ret_str="";
+				if ($exclude)
+				{
+					my ($data_source, $db_name, $user, $password) = getConfig();
+					my $dbh = DBI->connect($data_source, $user, $password, { RaiseError => 1, AutoCommit => 0 });
+					my $sql = 'SELECT Protein_Id, MS_Search_Engine, Protein_Id_Method, MS_File_Suffix FROM band_protein WHERE Band_Id = ?';
+					my $sth = $dbh->prepare($sql);
+						
+					foreach (@bands)
+					{ # TO DO - finish this and don't forget "exclude" allowance for input params!!!
+						my $band_id = $_ -> get ('Id'); 
+						my $mass = $_ -> get('Mass') || "";
+						my $amount = $_ -> get('Quantity') || "";
+						my $st = $_ -> get('Start_Position');
+						my $end = $_ -> get('End_Position');
+						
+						$sth->execute($band_id) or die "retrieve band error code: ", $DBI::errstr;
+						my $row_count = $sth->rows;
+						
+						if ($row_count > 0)
+						{
+							$ret_str .= "$st,$end,"; 
+						}
+					}
+				}
+				else
+				{
+					foreach (@bands)
+					{
+						my $st = $_ -> get ('Start_Position');
+						my $end = $_ -> get ('End_Position');
+						$ret_str .= "$st,$end,"; 
+					}
+					
+				}
+				
+				$ret_str=~s/,$//;
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "load bands return string (dict): '$ret_str'"; }
+				print "$ret_str";
+				exit(0);	
+			}
+			
+			#### Special case for save_manual_bands ####
+			if ($action eq 'save_manual_bands')
+			{
+				print header(-type => 'text/plain');
+				if($DEVELOPER_VERSION) { print DEVEL_OUT "***Saving manual bands.***\n"; }
+				if($g_user_id)
+				{ #load user info.
+					$g_user_login = 1;
+					if(!login_the_user())
+					{ #error page!
+						print "ERROR: User log in failed.";
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "ERROR: User log in failed.\n"; }
+						exit(1);
+					}
+		
+					my $email = $g_the_user -> get('Email');
+					if($DEVELOPER_VERSION) { print DEVEL_OUT "User info loaded for $email\n"; }
+					
+					
+					my $gel_id = param_check('snb_gel');
+					my $lanes_list = param_check('snb_lanes_list');
+					my $tops_list = param_check('snb_tops_list');
+					my $heights_list = param_check('snb_heights_list');
+					my $norm_img_str = param_check('norm_img_str');
+					
+					if($DEVELOPER_VERSION)
+					{ print DEVEL_OUT "SNB: gel=$gel_id, lanes_list=$lanes_list, tops_list=$tops_list, heights_list=$heights_list\n"; }
+					
+					my @lanes_list = split /\-/, $lanes_list;
+					my @tops_list = split /\-/, $tops_list;
+					my @heights_list = split /\-/, $heights_list;
+					
+					my $gel_obj = Biochemists_Dream::Gel -> retrieve($gel_id);
+					my $exp_id = $gel_obj -> get('Experiment_Id');
+					my $exp_obj = Biochemists_Dream::Experiment -> retrieve("$exp_id");
+					
+					my $gel_prefix = $gel_obj -> get('File_Id');
+					$gel_prefix = "gel$gel_prefix";
+					
+					#first, obtain band mass by calling calc_new_bands_mass_amt.pl
+					#must create new_bands.txt file in the Experiment directory
+					my $exp_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id";
+					if(!open(BANDS_FILE, ">$exp_dir/$gel_prefix-new_bands.txt"))
+					{
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "Could not create new bands file: $exp_dir/new_bands.txt.\n"; }
+						print "Error: Could not create new bands file in Experiment directory.\n";
+						exit(1);
+					}
+					else
+					{
+						my $i;
+						print BANDS_FILE "lane_id\tmid\ttop\theight\n";
+						for($i=0; $i<=$#lanes_list; $i++)
+						{
+							my $mid = $tops_list[$i] + int($heights_list[$i]/2);
+							print BANDS_FILE "$lanes_list[$i]\t$mid\t$tops_list[$i]\t$heights_list[$i]\n";
+						}
+						close(BANDS_FILE);
+						
+						
+						
+						#CALL calc_new_bands_mass_amt.pl
+						if ($DEVELOPER_VERSION) { print DEVEL_OUT qq!CALLING: "perl" "../finding_lane_boundaries/calc_new_bands_mass_amt.pl" "$exp_dir" "$gel_prefix" "calibration.txt" "new_bands.txt"\n!; }
+						my $cmd_out = `"perl" "../finding_lane_boundaries/calc_new_bands_mass_amt.pl" "$exp_dir" "$gel_prefix" "calibration.txt" "$gel_prefix-new_bands.txt" 2>&1`;
+						if($? >> 8 != 0) # exit value not 0, indicates error...
+						{
+							if($DEVELOPER_VERSION) {
+								printf DEVEL_OUT "ERROR: command (calc_new_bands_mass_amt.pl) exited with value %d\n", $? >> 8, "\n";
+								print DEVEL_OUT "$cmd_out\n";
+							}
+							printf "ERROR executing command calc_new_bands_mass_amt";
+							exit(1);
+						}
+						else
+						{
+							my $i=0;
+							#load band mass information from file output by calc_new_bands_mass_amt.pl
+							if(!open(IN, "$exp_dir/$gel_prefix-new_bands.mass_and_amount.txt")) 
+							{
+								if ($DEVELOPER_VERSION) { print "Error: Could not open new bands file: '$exp_dir/$gel_prefix-new_bands.txt'.\n"; }
+								print "Error: Could not open new bands file in Experiment directory.";
+								exit(1);
+							}
+							else
+							{
+								
+								my $line=<IN>;
+								while($line=<IN>)
+								{
+									$line =~ s/\r\n//g;
+									chomp($line);
+									print DEVEL_OUT "line='$line'\n";
+									if ($line=~/^([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)/)
+									{
+										my $lane_id=$1;
+										my $y_pos=$2;
+										my $top=$3;
+										my $height=$4;
+										my $mass=$5;
+										my $err=$6;
+										
+										print DEVEL_OUT "vars=$lane_id $y_pos $top $height $mass $err\n";
+										
+										my $bottom=$top+$height;
+										
+										$mass = sprintf("%.2f", $mass);
+										if($err>0) { sprintf("%.2f", $err); }
+										else { $err=undef; }
+										
+										my $band = Biochemists_Dream::Band -> insert({Lane_Id => $lane_id,
+																			  Mass => $mass,
+																			  Mass_Error => $err,
+																			  Start_Position => $top,
+																			  End_Position => $bottom});
+										$i++;
+									}
+								}
+								close(IN);
+								
+								#print "SUCCESS: $i bands added for gel..";
+								display_experiment_results($exp_id, $exp_obj, $norm_img_str);
+								
+								if($DEVELOPER_VERSION) { print DEVEL_OUT "SUCCESS: $i bands added for gel $gel_id.\n"; }
+								exit(0);
+							}
+						}
+					}
+				}
+                else
+				{
+					print "ERROR: No user logged in.";
+					if($DEVELOPER_VERSION) { print DEVEL_OUT "ERROR: No user logged in.\n"; }
+					exit(1);
+				}
+            }
+			#### Special case for save_manual_bands ####
+            
 	
 			if($g_user_id)
 			{ #load user info.
@@ -225,12 +428,12 @@ START_HTML
 			}
 			if ($g_frame eq '2p') #frame 2p - 
 			{
-				my $mode = param('mode');
+				my $mode = param_check('mode');
 				if ($mode)
 				{
 					if ($mode eq 'MESSAGE')
 					{
-						my $msg = param('Text');
+						my $msg = param_check('Text');
 						display_frame2p($mode, $msg);
 					}
 					else { display_frame2p($mode); }
@@ -279,7 +482,7 @@ START_HTML
 			if ($action eq 'ContactList')
 			{
 				#save to a file, the email address
-				my $email = param('email');
+				my $email = param_check('email');
 				my $msg = '';
 				if ($email)
 				{
@@ -298,14 +501,15 @@ START_HTML
 			}
 			elsif($action eq "LanesReport")
 			{
-				my $MAX_DISPLAY_LANES_ON_PAGE = 10;
+				my $MAX_DISPLAY_LANES_ON_PAGE = 5;
 				
-				my $type = param('type'); #PUBLIC or PRIVATE
+				my $type = param_check('type'); #PUBLIC or PRIVATE
 				
 				#get the lanes
-				my $lanes_str = param('IdList');
-				my $protein_name = param('protein');
-				my $species = param('species');
+				my $lanes_str = param_check('IdList');
+				my $protein_name = param_check('protein');
+				my $species = param_check('species');
+				my $sys_name = param_check('systematic_name');
 				my @lanes_list = split('-',$lanes_str);
 				
 				my $cur_num_lanes = 0; 
@@ -313,7 +517,8 @@ START_HTML
 				my @ph_to_display=(); my @exp_proc_files_to_display=();
 				my @gel_details_files_to_display=(); my @img_tags_to_display=(); my @html_file_names=(); my $page_number = 1; my $lane_i = 0;
 				my @over_exp_to_display = (); my @tag_type_to_display = (); my @tag_loc_to_display = ();
-				my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = ();
+				my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = (); 
+				my @single_reagent_flag_to_display=(); my @elution_method_to_display=(); my @elution_reagent_to_display=();
 				my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql( qq { Id IN ($lanes_str) } ); 
 				foreach my $lane (@lanes)
 				{
@@ -410,6 +615,23 @@ START_HTML
 					if (defined $field) { push @notes_to_display, $field; }
 					else { push @notes_to_display, '-'; }
 					
+					$field = $lane -> get('Elution_Method');
+					if (defined $field) { push @elution_method_to_display, $field; }
+					else { push @elution_method_to_display, '-'; }
+					
+					$field = $lane -> get('Elution_Reagent');
+					if (defined $field) { push @elution_reagent_to_display, $field; }
+					else { push @elution_reagent_to_display, '-'; }
+					
+					$field = $lane -> get('Single_Reagent_Flag');
+					if (defined $field) 
+					{ 
+						#translate the column into english
+						if ($field == 0) {$field = "Multiple"} else {$field = "Single"};
+						push @single_reagent_flag_to_display, $field; 
+					}
+					else { push @single_reagent_flag_to_display, '-'; }
+							
 					my @cal_lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, Quantity_Std_Cal_Lane => 1);
 					my $units = "";
 					if($#cal_lanes >= 0) { $units = $cal_lanes[0] -> get('Quantity_Std_Units'); }
@@ -427,20 +649,24 @@ START_HTML
 						my $fname;
 						if ($type eq 'PUBLIC')
 						{
-							$fname = save_query_results('PUBLIC', $protein_name, $species, \@lanes_to_display, \%reagents_to_display,
+							$fname = save_query_results('PUBLIC', $protein_name, $species, $sys_name, \@lanes_to_display,
+														\%reagents_to_display,
 										\@img_tags_to_display, \@ph_to_display, \@users_to_display, \@exp_proc_files_to_display,
 										\@gel_details_files_to_display, \@over_exp_to_display, \@tag_type_to_display,
 										\@tag_loc_to_display, \@antibody_to_display, \@other_cap_to_display,
-										\@notes_to_display, $page_number); #save html to a file(s) in Reports dir
+										\@notes_to_display, \@single_reagent_flag_to_display, \@elution_method_to_display,
+										\@elution_reagent_to_display, $page_number); #save html to a file(s) in Reports dir
 						}
 						else
 						{
-							$fname = save_query_results('PRIVATE', $protein_name, $species, \@lanes_to_display, \%reagents_to_display,
+							$fname = save_query_results('PRIVATE', $protein_name, $species, $sys_name, \@lanes_to_display,
+														\%reagents_to_display,
 										\@img_tags_to_display, \@ph_to_display, \@exps_to_display, \@projects_to_display,
 										\@exp_proc_files_to_display,
 										\@gel_details_files_to_display, \@over_exp_to_display, \@tag_type_to_display,
 										\@tag_loc_to_display, \@antibody_to_display, \@other_cap_to_display,
-										\@notes_to_display, $page_number); #save html to a file(s) in Reports dir
+										\@notes_to_display, \@single_reagent_flag_to_display, \@elution_method_to_display,
+										\@elution_reagent_to_display, $page_number); #save html to a file(s) in Reports dir
 						}
 						
 						$fname =~ s/^/"/; #put quotes around it for when we make the system call...
@@ -449,6 +675,7 @@ START_HTML
 						
 						#clear the data structures
 						undef @lanes_to_display; undef @img_tags_to_display; undef @ph_to_display; undef @users_to_display;
+						undef @single_reagent_flag_to_display; undef @elution_method_to_display; undef @elution_reagent_to_display;
 						undef @exp_proc_files_to_display; undef @gel_details_files_to_display; undef %reagents_to_display;
 						@lanes_to_display=(); @img_tags_to_display=(); @ph_to_display=(); @users_to_display=();
 						@exp_proc_files_to_display=(); @gel_details_files_to_display=(); %reagents_to_display=();
@@ -457,7 +684,8 @@ START_HTML
 						@over_exp_to_display = (); @tag_type_to_display = (); @tag_loc_to_display = ();
 						@antibody_to_display = (); @other_cap_to_display = (); @notes_to_display = ();
 						undef @exps_to_display; undef @projects_to_display;
-						@exps_to_display = (); @projects_to_display = ();
+						@exps_to_display = (); @projects_to_display = (); @single_reagent_flag_to_display=();
+						@elution_method_to_display=(); @elution_reagent_to_display=();
 						
 						$page_number++;
 						$cur_num_lanes = 0;
@@ -471,18 +699,20 @@ START_HTML
 				$time =~ s/:/ /g;
 				my $rnum = rand();
 				$rnum =~ s/^0.//;
+				#print DEVEL_OUT "*****$BASE_DIR/$DATA_DIR/Reports/$protein_name-$species-$time-$lane_i-Lanes.$rnum.pdf\n";
+				#print DEVEL_OUT "*****$html_files_str\n";
 				my $pdf_file_name = "$BASE_DIR/$DATA_DIR/Reports/$protein_name-$species-$time-$lane_i-Lanes.$rnum.pdf";
 				my $sys_ret = system(qq!"$WKHTMLTOPDF_DIR/wkhtmltopdf" $html_files_str "$pdf_file_name"!);
 				if($sys_ret != 0)
 				{
-					#error!
+					print DEVEL_OUT "Error: wkhtmltopdf failed to create pdf file.\n";
 				}
 				
 				#delete the html files 
 				foreach my $file (@html_file_names)
 				{
 					$file =~ s/"//g;
-					unlink("$file");
+					#unlink("$file");
 				}
 			
 				#return page with js that redirects to pdf file 'download'
@@ -492,6 +722,14 @@ START_HTML
 				#add code to check for errors!!!
 				
 			}
+			elsif($action eq "LinkTo")
+			{
+				my $species = param_check("species");
+				my $protein = param_check("protein");
+				my $user = param_check("user");
+				
+				display_frameset_for_link($species, $protein, $user);
+			}
 			elsif($action eq "OpenPublicView")
 			{
 				display_frame2p('PUBLICVIEW SEARCH');
@@ -500,8 +738,8 @@ START_HTML
 			elsif($action eq "LaneGrouping")
 			{
 				#get the gel id's for the analysis, or use all gels in the experiment?
-				#my @ids = param('gels_public');
-				my $exp_id = param('experiment_id');
+				#my @ids = param_check('gels_public',1);
+				my $exp_id = param_check('experiment_id');
 				my $exp = Biochemists_Dream::Experiment -> retrieve($exp_id);
 				my $user_id = $exp -> Project_Id -> User_Id;
 
@@ -595,14 +833,14 @@ START_HTML
 							$lanes_to_run .= ( '"' . $lanes . '" ');
 						}
 						
-						my $cmd_out = `"../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run`;	
+						my $cmd_out = `"perl" "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run 2>&1`;	
 						if ( $? == -1 )
 						{
-						    $error_string = qq?ERROR: command failed (calculate_lane_scores.pl): $!\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
+						    $error_string = qq?ERROR 1: command failed (calculate_lane_scores.pl): $!\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
 						}
 						elsif($? >> 8 != 0) # exit value not 0, indicates error...
 						{
-						    $error_string = sprintf("ERROR: command (calculate_lane_scores.pl) exited with value %d\n", $? >> 8);
+						    $error_string = sprintf("ERROR 2: command (calculate_lane_scores.pl) exited with value %d\n", $? >> 8);
 						    $error_string .= qq?$cmd_out\nCommand: "../finding_lane_boundaries/calculate_lane_scores.pl" "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$exp_id" "$cap_protein_id.lane_scores.txt" $lanes_to_run?;
 						}
 					}
@@ -610,14 +848,14 @@ START_HTML
 					{
 						if ($error_string)
 						{
-							print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
+							print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main2.css'></HEAD><BODY>";
 							print OUT "<p>Error: <pre>$error_string</pre></p>";
 							print OUT "</BODY></HTML>";
 							close(OUT);
 						}
 						else
 						{
-							print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main.css'></HEAD><BODY>";
+							print OUT "<HTML><HEAD><TITLE>copurification.org</TITLE><link rel='stylesheet' href='/copurification-html/main2.css'></HEAD><BODY>";
 							print OUT "<h1>Lane Clustering for Experiment '$exp_name'</h1>";
 							#get results txt files and create image/html
 							foreach my $cap_protein_id (keys %lanes_to_group)
@@ -657,8 +895,8 @@ START_HTML
 			}
 			elsif($action eq "Login")
 			{#attempt to log in the user
-				my $email = param('email');
-				my $password = param('password');
+				my $email = param_check('email');
+				my $password = param_check('password');
 	
 				$g_user_id = validate_user($email, $password);
 				
@@ -793,30 +1031,33 @@ START_HTML
 				
 				my $err_str = "";
 				#get search parameters:
-				my $species = param('species');
-				my $protein_str = param('protein');
+				my $species = param_check('species');
+				my $protein_str = param_check('protein');
 				
 				my $protein_name = $protein_str;
 				$protein_name =~ s/^([0-9]+) //;
 				my $protein = $1;
 				
 				#get srf chosen field and filter lanes if no multiple
-				my $srf_choice = param('srf_choice');
+				my $srf_choice = param_check('srf_choice');
+				
+				my $pdbentry = Biochemists_Dream::Protein_DB_Entry->retrieve($protein);
+				my $sys_name = $pdbentry->get("Systematic_Name");
 				
 				my $where_clause;
 				my @users; my $user_id_list;
 				if ($action eq "Search")
 				{
 					#turn user ids into comma separated lists for sql statment
-					@users = param('user_ids');
+					@users = param_check('user_ids',1);
 					$user_id_list = "";
 					foreach (@users) { if($_ ne -1) { $user_id_list .= "$_, "; } }
 					$user_id_list =~ s/, $//;
 				}
 				else
 				{
-					my @projs_id = param('projects_id');
-					my @exps_id = param('exps_id');
+					my @projs_id = param_check('projects_id',1);
+					my @exps_id = param_check('exps_id',1);
 					if (!@exps_id)
 					{ $where_clause = "(project_id in (" . join(',', @projs_id) . "))"; }
 					elsif(!@projs_id)
@@ -826,11 +1067,14 @@ START_HTML
 				}
 				
 				#load the exclude reagent constrains from the query form
-				my $reagent_exclude_ids = param('reagents_exclude');
-				$reagent_exclude_ids =~ s/,/, /;
+				my $reagent_exclude_ids = param_check('reagents_exclude');
+				while ($reagent_exclude_ids =~ /,\s*$/)
+				{
+					$reagent_exclude_ids =~ s/\s*,\s*$//;
+				}
 				
 				#load the include reagent constraints from the query form
-				my $reagent_ids = param('reagents_include');
+				my $reagent_ids = param_check('reagents_include');
 				my @reagent_include_ids = split /,/, $reagent_ids;
 				my %reagent_constraints;
 				foreach my $id (@reagent_include_ids)
@@ -840,15 +1084,15 @@ START_HTML
 					{
 						#get min/max for current reagent id/amount, if exists:
 						my $min_param = "reagent_min_$id" . "_$unit";
-						my $min = param($min_param);
-						if(defined $min)
+						my $min = param_check($min_param);
+						if(defined $min && $min ne '')
 						{
-							
 							my $max_param = "reagent_max_$id" . "_$unit";
-							my $max = param($max_param);
-							if($min !~ /[0-9.]+/ || $max !~ /[0-9.]+/ || $min < 0 || $max < 0 || $min > $max)
+							my $max = param_check($max_param);
+							
+							if($min !~ /[0-9\.]+/ || $max !~ /[0-9\.]+/ || $min < 0 || $max < 0 || $min > $max)
 							{
-								$err_str = "Please check your search parameters.  Reagent min/max values are invalid.";
+								$err_str = "Please check your search parameters.  Reagent min/max values are invalid. ($min) ($max)";
 								last;
 							}
 							${$reagent_constraints{$id}{$unit}}[0] = $min;
@@ -858,21 +1102,21 @@ START_HTML
 				}
 				
 				#load ph constraint 
-				my $min_ph = param('ph_min');
-				my $max_ph = param('ph_max');
-				if($min_ph !~ /[0-9.]+/ || $max_ph !~ /[0-9.]+/ || $min_ph < 0 || $max_ph < 0 || $min_ph > $max_ph)
+				my $min_ph = param_check('ph_min');
+				my $max_ph = param_check('ph_max');
+				if($min_ph !~ /[0-9\.]+/ || $max_ph !~ /[0-9\.]+/ || $min_ph < 0 || $max_ph < 0 || $min_ph > $max_ph)
 				{ $err_str = "Please check your search parameters.  pH min/max values are invalid."; }
 				
 				#load INCLUDE reagents search type:
-				my $search_type = param('search_type');
+				my $search_type = param_check('search_type');
 				if (!$search_type) { $search_type = 'and'; }
-				
 				
 				my @lanes_to_display = (); my %reagents_to_display = (); my @users_to_display = (); my @ph_to_display = (); my @exp_proc_files_to_display = ();
 				my @gel_details_files_to_display = (); my @img_tags_to_display = (); my @checks_to_display = (); my $hidden_to_display = "";
 				my $image_map_html = ""; my @over_exp_to_display = (); my @tag_type_to_display = (); my @tag_loc_to_display = ();
-				my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = (); my @single_reagent_flag_to_display = ();
-				my @exps_to_display = (); my @projects_to_display = ();
+				my @antibody_to_display = (); my @other_cap_to_display = (); my @notes_to_display = (); 
+				my @single_reagent_flag_to_display = (); my @elution_method_to_display=(); my @elution_reagent_to_display=();
+				my @exps_to_display = (); my @projects_to_display = (); my @citations_to_display = (); my @lane_ms_to_display=(); my @xrefs_to_display = ();
 				my $num_to_display = 0; my $max_over = 0;
 				if(!$err_str)
 				{
@@ -929,15 +1173,15 @@ START_HTML
 						# the srf on database is zero when there are multiple reagents
 						# the srf_choice from web page is 'No' when mulitples are not included
 						my $srf = $lane -> get('Single_Reagent_Flag');
-						#   $srf_choice = param('srf_choice');
-						print DEVEL_OUT "SRF DB Flag: $srf\n";
-						print DEVEL_OUT "SRF Choice : $srf_choice\n";
+						#   $srf_choice = param_check('srf_choice');
+						#print DEVEL_OUT "SRF DB Flag: $srf\n";
+						#print DEVEL_OUT "SRF Choice : $srf_choice\n";
 						if($srf == 0 and $srf_choice eq 'nomult') { next; }
 						
 						my $lane_id = $lane -> get("Id");
 						
 						#check exclude reagents not present for lane
-						if($reagent_exclude_ids)
+						if($reagent_exclude_ids=~/\w/)
 						{
 							my @lcs = Biochemists_Dream::Lane_Reagents -> retrieve_from_sql( qq{ Reagent_Id IN ($reagent_exclude_ids) AND Lane_Id = $lane_id } );
 							if($#lcs >= 0) { next; }
@@ -993,6 +1237,8 @@ START_HTML
 							}
 							
 							my $gel = $lane -> Gel_Id;
+							my $citation = $gel -> get('Citation');
+							my $xref = $gel -> get('XRef');
 							my $gel_id = $gel -> get('Id');
 							my $experiment = $gel -> Experiment_Id;
 							my $project = $experiment -> Project_Id;
@@ -1016,6 +1262,27 @@ START_HTML
 								push @projects_to_display, $project -> Name;
 							}
 							
+							if ($citation)
+							{
+								#regex the PMID and make it into a link
+                                if ($citation =~ /PMID:\s*(\d+)/i)
+								{
+									my $id = $1;
+									$citation = "PMID: <a href='https://www.ncbi.nlm.nih.gov/pubmed/$id' target='_blank'>$id</a>";  
+                                }
+                            }
+							else { $citation='(none)'; }
+							
+							if ($xref)
+							{
+                                if ($xref =~ /IntAct:\s*([0-9\-A-Za-z]+)/i)
+								{
+									my $id = $1;
+									$xref = "IntAct: <a href='https://www.ebi.ac.uk/intact/search/do/search?searchString=imex:$id' target='_blank'>$id</a>";  
+                                }
+                            }
+							else { $xref='(none)'; }
+                            
 							if ($exp_proc_file)
 							{#should have one since the gel is public!
 								$exp_proc_file = qq!<a href="/copurification/$user_id/Experiment_Procedures/$exp_proc_file" target="blank">$exp_proc_file</a>!;
@@ -1031,6 +1298,8 @@ START_HTML
 							
 							push @exp_proc_files_to_display, $exp_proc_file;
 							push @gel_details_files_to_display, $gel_details_file;
+							push @citations_to_display, $citation;
+							push @xrefs_to_display, $xref;
 					
 							my $ph = $lane -> get('Ph');
 							$ph =~ s/0+$//; $ph =~ s/\.$//;
@@ -1066,21 +1335,43 @@ START_HTML
 							else { push @notes_to_display, '-'; }
 							
 							$field = $lane -> get('Single_Reagent_Flag');
-							#translate the column into english
-							if ($field == 0) {$field = "Multiple"} else {$field = "Single"};
-							
-							if (defined $field) { push @single_reagent_flag_to_display, $field; }
+							if (defined $field) 
+							{ 
+								#translate the column into english
+								if ($field == 0) {$field = "Multiple"} else {$field = "Single"};
+								push @single_reagent_flag_to_display, $field; 
+							}
 							else { push @single_reagent_flag_to_display, '-'; }
+							
+							$field = $lane -> get('Elution_Method');
+							if (defined $field) { push @elution_method_to_display, $field; }
+							else { push @elution_method_to_display, '-'; }
+							
+							$field = $lane -> get('Elution_Reagent');
+							if (defined $field) { push @elution_reagent_to_display, $field; }
+							else { push @elution_reagent_to_display, '-'; }
 							
 							my @cal_lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id, Quantity_Std_Cal_Lane => 1);
 							my $units = "";
 							if($#cal_lanes >= 0) { $units = $cal_lanes[0] -> get('Quantity_Std_Units'); }
-					
+							
 							my $gel_root = 'gel' . $gel_file_id;
-							my $img_tag = qq!<div name="lane_image"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.png" usemap="#$lane_id"></div>\
-									<div name="norm_lane_image" style="display:none"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.n.png" usemap="#$lane_id"></div>
-									<div name="norm_lane_image2" style="display:none"><img src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nn.png" usemap="#$lane_id"></div>!;
-							push @img_tags_to_display, $img_tag;
+							my $lane_search_engine = $lane -> get("MS_Search_Engine");
+							my $lane_file_suffix = $lane -> get("MS_File_Suffix");
+							my $ms_str='';
+							if ($lane_search_engine and $lane_file_suffix)
+							{
+								my $fn = "/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.ms.$lane_file_suffix";
+								if ((lc $lane_file_suffix) eq 'xml')
+								{ $ms_str = qq!<a href="$fn" download="xml_file">$lane_search_engine</a>!; }
+                                else
+								{ $ms_str = qq!<a href="$fn" target="_blank">$lane_search_engine</a>!; }
+                            }
+							else
+							{
+								$ms_str = qq!(none)!; 
+							}
+							push @lane_ms_to_display, $ms_str;
 							
 							my $checkbox = qq!<input type='checkbox' name='check_lanes' value='$lane_id' />!;
 							push @checks_to_display, $checkbox;
@@ -1090,7 +1381,23 @@ START_HTML
 							
 							#imagemap masses to bands:
 							my @bands = $lane -> bands;
-							$image_map_html .= create_imagemap_html(\@bands, $lane_id, $units, $lane_order);
+							$image_map_html .= create_imagemap_html_for_search(\@bands, $lane_id, $units, $lane_order, $gel_file_id, $experiment_id, $user_id);
+							
+							my $img_tag = qq!<div id="lane_div_$lane_id">\
+					                <div name="lane_image" ><img id="lane_image_$lane_id" class="lane_image" src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.png" usemap="#$lane_id"></div>\
+									<div name="norm_lane_image" style="display:none"><img id="nlane_image_$lane_id" class="nlane_image" src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.n.png" usemap="#$lane_id"></div>\
+									<div name="norm_lane_image2" style="display:none"><img id="n2lane_image_$lane_id" class="n2lane_image" src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nn.png" usemap="#$lane_id"></div>!;
+									
+							if (-e "$BASE_DIR/$DATA_DIR/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nnn.png")
+							{
+                                $img_tag .= qq!<div name="norm_lane_image3" style="display:none"><img id="n3lane_image_$lane_id" class="n3lane_image" src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nnn.png" usemap="#$lane_id"></div></div>!;
+                            }
+							else
+							{
+								$img_tag .= qq!<div name="norm_lane_image3" style="display:none"><img id="n3lane_image_$lane_id" class="n3lane_image" src="/copurification/$user_id/Experiments/$experiment_id/$gel_root.lane.$lane_order.nn.png" usemap="#$lane_id"></div></div>!;
+							}
+
+							push @img_tags_to_display, $img_tag; 
 						}
 					}
 				}
@@ -1099,19 +1406,25 @@ START_HTML
 				{
 					if ($action eq 'Search')
 					{
-						display_query_results('PUBLIC', $protein_name, $species, \@lanes_to_display, \%reagents_to_display, \@img_tags_to_display,
+						display_query_results('PUBLIC', $protein_name, $species, $sys_name, \@lanes_to_display, \%reagents_to_display,
+											  \@img_tags_to_display,
 								$image_map_html, \@ph_to_display, \@users_to_display, \@exp_proc_files_to_display,
 								\@gel_details_files_to_display, \@checks_to_display, $hidden_to_display,
 								\@over_exp_to_display, \@tag_type_to_display, \@tag_loc_to_display, \@antibody_to_display,
-								\@other_cap_to_display, \@notes_to_display, \@single_reagent_flag_to_display, $max_over); 
+								\@other_cap_to_display, \@notes_to_display, \@single_reagent_flag_to_display, 
+								\@elution_method_to_display, \@elution_reagent_to_display, \@citations_to_display, \@xrefs_to_display,
+								\@lane_ms_to_display, $max_over); 
 					}
 					else
 					{
-						display_query_results('PRIVATE', $protein_name, $species, \@lanes_to_display, \%reagents_to_display, \@img_tags_to_display,
+						display_query_results('PRIVATE', $protein_name, $species, $sys_name, \@lanes_to_display, \%reagents_to_display,
+											  \@img_tags_to_display,
 								$image_map_html, \@ph_to_display, \@exps_to_display, \@projects_to_display, \@exp_proc_files_to_display,
 								\@gel_details_files_to_display, \@checks_to_display, $hidden_to_display,
 								\@over_exp_to_display, \@tag_type_to_display, \@tag_loc_to_display, \@antibody_to_display,
-								\@other_cap_to_display, \@notes_to_display, \@single_reagent_flag_to_display, $max_over); 
+								\@other_cap_to_display, \@notes_to_display, \@single_reagent_flag_to_display, 
+								\@elution_method_to_display, \@elution_reagent_to_display, \@citations_to_display, \@xrefs_to_display,
+								\@lane_ms_to_display, $max_over); 
 					}
 				}	
 				else
@@ -1168,13 +1481,13 @@ START_HTML
 					eval
 					{
 						#get the user params:
-						my $first_name = param('first_name') || undef;
-						my $last_name = param('last_name');
-						my $institution = param('institution') || undef;
-						my $title = param('title') || undef;
-						my $orcid = param('orcid') || undef;
-						$email = param('email');
-						my $password = param('password');
+						my $first_name = param_check('first_name') || undef;
+						my $last_name = param_check('last_name');
+						my $institution = param_check('institution') || undef;
+						my $title = param_check('title') || undef;
+						my $orcid = param_check('orcid') || undef;
+						$email = param_check('email');
+						my $password = param_check('password');
 	
 						#to do ! validate the params in javascript!
 	
@@ -1193,6 +1506,11 @@ START_HTML
 							#to do ! - add user validation by email
 	
 							#create the user's folder for experiment data, etc.
+							#if(mkdir("/var/www/data_v2_0/1000/"))
+							#{
+							#	print DEVEL_OUT "DIR CREATED";
+							#}
+							#else { $error_str = " unable to create (/var/www/data_v2_0/1000/) - $!"; }
 							if(mkdir("$BASE_DIR/$DATA_DIR/$new_user_id"))
 							{
 								$user_dir = "$BASE_DIR/$DATA_DIR/$new_user_id";
@@ -1210,7 +1528,7 @@ START_HTML
 								}
 								else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id/Experiments) - $!"; }
 							}
-							else { $error_str = " Could not create directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id) - $!"; }
+							else { $error_str = " Could not create base directory for new user ($BASE_DIR/$DATA_DIR/$new_user_id) - $!"; }
 	
 						}
 						else { $error_str = " A user with this email already exists."; }
@@ -1260,14 +1578,26 @@ START_HTML
 				}
 				elsif($action eq "Add Project") 
 				{
-					my $name = param('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
-					my $desc = param('project_description') || undef; #let description column be NULL if user enters no description
-					my $parent_id = param('project_parent_id');
-					if($parent_id == -1) { $parent_id = undef; } #no parent, let it be NULL in the database (root project)
-	
-					#add a project with the given name, description, parent_id to the database
-					my $new_project = Biochemists_Dream::Project -> insert({Name => $name, Description => $desc, Project_Parent_Id => $parent_id, User_Id => $g_user_id});
-	
+					my $name = param_check('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
+					my $desc = param_check('project_description') || undef; #let description column be NULL if user enters no description
+					my $parent_id = param_check('project_parent_id');
+					
+					
+					if(!$parent_id)
+					{ #no parent, let it be NULL in the database (root project) and use current user as the project owner
+						$parent_id = undef;
+						#add a project with the given name, description, parent_id to the database
+						my $new_project = Biochemists_Dream::Project -> insert({Name => $name, Description => $desc, Project_Parent_Id => $parent_id, User_Id => $g_user_id});
+					} 
+					else
+					{ # get parent project owner for current project owner
+						my $parent_project = Biochemists_Dream::Project->retrieve($parent_id);
+						my $parent_user_id = $parent_project -> get("User_Id");
+						
+						#add a project with the given name, description, parent_id to the database
+						my $new_project = Biochemists_Dream::Project -> insert({Name => $name, Description => $desc, Project_Parent_Id => $parent_id, User_Id => $parent_user_id});
+					}
+					
 					#clear params...
 					param('project_name', '');
 					param('project_description', '');
@@ -1287,8 +1617,18 @@ START_HTML
 					my $sub_dir;
 					my $remote_file;
 					my $lw_fh = upload('Experiment_Procedures');
-					if ($lw_fh) { $remote_file = param('Experiment_Procedures'); $sub_dir = 'Experiment_Procedures'; } # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
-					elsif($lw_fh = upload('Gel_Details')) { $remote_file = param('Gel_Details'); $sub_dir = 'Gel_Details'; }
+					if ($lw_fh) 
+					{ 
+						$remote_file = param('Experiment_Procedures');
+						$remote_file = param_check_file_name('Experiment_Procedures',$remote_file); 
+						$sub_dir = 'Experiment_Procedures'; 
+					} # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
+					elsif($lw_fh = upload('Gel_Details')) 
+					{ 
+						$remote_file = param('Gel_Details'); 
+						$remote_file = param_check_file_name('Gel_Details',$remote_file); 
+						$sub_dir = 'Gel_Details'; 
+					}
 					else { $err_str = "Error in file upload."; }
 					
 					#check that remote file extension is .txt, if not then return error message
@@ -1324,7 +1664,7 @@ START_HTML
 						my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
 						
 						$local_fname =~ s/^(.*)\.[^\.]+$/$1/; #remove extension b/c function takes root of local file name and adds extension of uploaded file
-						$local_fname = lc $local_fname;
+						#$local_fname = lc $local_fname;
 						$err_str = upload_file($remote_file, $io_fh, $local_fname);
 						close($io_fh);
 						if($err_str) { $err_str .= " (file upload)"; }
@@ -1338,10 +1678,10 @@ START_HTML
 				elsif($action eq 'Delete')
 				{
 					#delete projects and experiments that were selected by the user
-					my $parent_id = param('project_parent_id');
+					my $parent_id = param_check('project_parent_id');
 	
 					#first, experiments
-					my @ids_to_delete = param('experiment_checkbox');
+					my @ids_to_delete = param_check('experiment_checkbox',1);
 					my $err_str = "";
 	
 					foreach my $id (@ids_to_delete)
@@ -1353,7 +1693,7 @@ START_HTML
 	
 					#next, projects
 					@ids_to_delete = ();
-					@ids_to_delete = param('project_checkbox');
+					@ids_to_delete = param_check('project_checkbox',1);
 	
 					#sort by id (descending) so that subprojects will be deleted first
 					my @sorted_ids = sort {$b <=> $a} @ids_to_delete;
@@ -1376,7 +1716,7 @@ START_HTML
 				}
 				elsif($action eq 'ViewProject') #done frames
 				{
-					my $project_id = param('Id');
+					my $project_id = param_check('Id');
 	
 					#print out the project details page
 					display_frame2('PROJECT', 0, $project_id);
@@ -1384,20 +1724,23 @@ START_HTML
 				}
 				elsif($action eq "Add Experiment")
 				{
-					my $err_str = ""; my $experiment_dir = "";
-					my $project_id = param('project_parent_id');
+					my $err_str = ""; my $experiment_dir = ""; my $cur_user_id="";
+					my $project_id = param_check('project_parent_id');
 					my $id; my $new_experiment; #the new experiment and id
 					my @new_proteins;
 					#local Biochemists_Dream::Experiment -> db_Main -> { AutoCommit }; #turn off autocommit (in this block only)
 					eval
 					{
-						my $name = param('experiment_name') || '?'; #error case if no name given, must have project name...
-						my $species = param('experiment_species');
-						my $desc = param('experiment_description') || undef; #let description column be NULL if user enters no description
-						my $proc_file = param('experiment_procedure');
+						my $name = param_check('experiment_name') || '?'; #error case if no name given, must have project name...
+						my $species = param_check('experiment_species');
+						my $desc = param_check('experiment_description') || undef; #let description column be NULL if user enters no description
+						my $proc_file = param_check('experiment_procedure');
 						if ($proc_file eq '(none selected)') { $proc_file = undef; } else { $proc_file = lc($proc_file); }
-						my $gel_file = param('gel_details');
+						my $gel_file = param_check('gel_details');
 						if ($gel_file eq '(none selected)') { $gel_file = undef; } else { $gel_file = lc($gel_file); }
+						
+						my $project = Biochemists_Dream::Project->retrieve($project_id);
+						$cur_user_id = $project -> get("User_Id");
 						
 						#add an experiment with the given name, description, project_id to the database
 						$new_experiment = Biochemists_Dream::Experiment -> insert({Name => $name, Description => $desc, Species => $species, Project_Id => $project_id, Experiment_Procedure_File => $proc_file, Gel_Details_File => $gel_file});
@@ -1407,26 +1750,32 @@ START_HTML
 						
 						my $lw_fh = upload('experiment_data_file'); # undef may be returned if it's not a valid file handle, e.g. file transfer interrupted by user
 						my $remote_file = param('experiment_data_file');
+						$remote_file = param_check_file_name('experiment_data_file',$remote_file); 
 						if (defined $lw_fh)
 						{
 							#upload the data file, create a directory for this experiment, and save the file there
 							
 							
-							$experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$id"; #the dir will be named w/ the primary key id
+							$experiment_dir = "$BASE_DIR/$DATA_DIR/$cur_user_id/Experiments/$id"; #the dir will be named w/ the primary key id
 							if(mkdir($experiment_dir))
 							{
-								my $local_fname = "$experiment_dir/$EXP_DATA_FILE_NAME_ROOT"; #param('experiment_data_file');
+								my $local_fname = "$experiment_dir/$EXP_DATA_FILE_NAME_ROOT"; #param_check('experiment_data_file');
 								my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
 								my $ext = "";
 								
 								if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload file: $remote_file, $local_fname.\n"; }
-								
+								#BA01252018 testing
+								#print DEVEL_OUT "remote file:  $remote_file\n";
 								$err_str = upload_file($remote_file, $io_fh, $local_fname, $ext);
-								
-								if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
+								#BA01252018 testing
+								#print DEVEL_OUT "extension after upload_file:  $ext\n";
+								#if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
 								
 								close($io_fh);
 								if($err_str) { $err_str .= " (file upload)"; }
+								#BA01252018 testing
+								#print DEVEL_OUT "extension:  $ext\n";
+							
 								if (lc $ext ne 'txt')
 								{
 									$err_str .= "Sample Descriptions file must be have .txt extension."; 
@@ -1438,11 +1787,12 @@ START_HTML
 						else { $err_str = "Could not upload Sample Descriptions file"; }
 	
 						#upload gel files and save to experiment directory
-						my %gel_fname_map;
-						my %gel_fname_ext_map;
+						my $gel_remote_fname_list = "";
+						my $gel_id_fname_list = "";
+						my $gel_ext_fname_list = "";
 						if($err_str eq "")
 						{
-							my @remote_files = param('gel_data_file');
+							my @remote_files = param_check('gel_data_file',1);
 							if (@remote_files)
 							{
 								my $remote_file; my $i = 1;
@@ -1465,8 +1815,10 @@ START_HTML
 										}
 										my $remote_fname_root = $remote_file_name;
 										$remote_fname_root =~ s/\.\w\w\w$//; #remove extension
-										$gel_fname_map{lc $remote_fname_root} = $i;
-										$gel_fname_ext_map{lc $remote_fname_root} = $ext;
+										
+										$gel_remote_fname_list .= "$remote_fname_root/";
+										$gel_id_fname_list .= "$i/";
+										$gel_ext_fname_list .= "$ext/";
 										$i++;
 									}
 								}
@@ -1477,16 +1829,16 @@ START_HTML
 								
 							}
 							else { $err_str = "No gel files uploaded";  }
+							
+						}
+						
+						if($err_str eq "")
+						{
+								#create background process to run
+								
+								$err_str=call_new_experiment($id, "$BASE_DIR/$DATA_DIR/$cur_user_id/Experiments", $species, $gel_remote_fname_list, $gel_id_fname_list, $gel_ext_fname_list);
 						}
 					
-						if($err_str eq "")
-						{
-							$err_str = load_experiment_data_file($id, $species, \%gel_fname_map, \%gel_fname_ext_map); 
-						}
-						if($err_str eq "")
-						{
-							$err_str = process_experiment_gels($id); #forks and returns so we can get back to user
-						}
 					}; #end eval block
 					if($@) { $err_str = $@; }
 					
@@ -1497,9 +1849,10 @@ START_HTML
 	
 					if($err_str eq "")
 					{
-						#show experiment page
-						if($DEVELOPER_VERSION) { print DEVEL_OUT "Experiment at '$experiment_dir' successfully created.\n"; }
-						display_frame2('EXPERIMENT', 1, $id);
+						#Load experiment processing message with a DIV for loading in the results from creating the experiment -
+						# this is where the error messages or the Success message will be displayed...
+						if($DEVELOPER_VERSION) { print DEVEL_OUT "Experiment at '$experiment_dir' is processing...\n"; }
+						display_add_exp_wait_page("../copurification/$cur_user_id/Experiments/new_experiment_log_$id.txt");
 					}
 					else
 					{ #delete the experiment directory
@@ -1515,17 +1868,36 @@ START_HTML
 				}
 				elsif($action eq 'ViewExperiment') #done frames
 				{
-					my $exp_id = param('Id');
-	
-					#print out the experiment details page:
-					display_frame2('EXPERIMENT', 0, $exp_id);
-	
+					my $exp_id = param_check('Id');
+					
+					#check if expid is in DB, get the owner
+					my $exp = Biochemists_Dream::Experiment -> retrieve($exp_id);
+					if ($exp)
+					{
+                        my $project = $exp -> Project_Id;
+						my $cur_user_id = $project -> get("User_Id");
+						if (-d "$BASE_DIR/$DATA_DIR/$cur_user_id/Experiments/$exp_id" && -e "$BASE_DIR/$DATA_DIR/$cur_user_id/Experiments/$exp_id/$PROCESS_GELS_LOG_FILE_NAME")
+						{
+							#print out the experiment details page:
+							display_frame2('EXPERIMENT', 0, $exp_id);
+							
+						}
+						else
+						{
+							display_add_exp_wait_page("../copurification/$cur_user_id/Experiments/new_experiment_log_$exp_id.txt");
+						}
+                    }
+					else
+					{
+						display_private_error_page("Experiment not found in database.<br>");
+					}
+
 				}
 				elsif($action eq 'Make Public')
 				{
 					#get the gel id's to make public
-					my @ids = param('gels_public');
-					my $exp_id = param('experiment_id');
+					my @ids = param_check('gels_public',1);
+					my $exp_id = param_check('experiment_id');
 	
 					foreach (@ids)
 					{
@@ -1542,19 +1914,19 @@ START_HTML
 				#########################################################################################
 				elsif($action eq 'View / Edit')
 				{
-					my $page_type = param('page_type');
+					my $page_type = param_check('page_type');
 					if($page_type eq 'procedures')
 					{
-						my $proc_id = param('procedure_id');
-						if($DEVELOPER_VERSION) { print DEVEL_OUT "proc_id in View/Edit: $proc_id\n"; }
+						my $proc_id = param_check('procedure_id');
+						#if($DEVELOPER_VERSION) { print DEVEL_OUT "proc_id in View/Edit: $proc_id\n"; }
 						#print out the procedures page w/ edit
 						display_frame2('PROCEDURES', 0, $proc_id, 1);
 					}
 				}
 				elsif($action eq 'Create Procedure')
 				{
-					my $new_name = param('name');
-					my $new_file_contents = param('file_contents');
+					my $new_name = param_check('name');
+					my $new_file_contents = param_check('file_contents');
 					my $new_proc_id;
 	
 					my $error_str = "";
@@ -1587,45 +1959,50 @@ START_HTML
 					}
 				}
 				#this code in elsif will add ms data to table and upload file				
-				elsif($action eq 'Add MS Data' or $action eq 'Del MS Data')
+				elsif($action eq 'Save MS Data' or $action eq 'Del MS Data')
 				{
-					my @params = param();
-					my $band_or_lane = param('band_or_lane');
-					my $update_or_delete = param('update_or_delete');
-					my $Redisplay_Lane_Popup = param('Redisplay_Lane_Popup');
-					my $cur_ms_search_engine = param('cur_ms_search_engine');
-					my $cur_local_ms_file = param('cur_local_ms_file'); #may have to figure it out
-					my $ms_protein_id_method = param('ms_protein_id_method'); 
-					my $ms_search_engine_for_band  = param('ms_search_engine_for_band '); 
-					my $mass_spect_file_for_band = param('mass_spect_file_for_band'); 
-					my $ms_protein_name = param('ms_protein_name'); 
-					my $incoming_band_id = param('Band_Id_for_Popup');
-					if ($band_or_lane eq 'lane') {
-						add_mass_spect_data_and_file_to_lane ();
-						$Redisplay_Lane_Popup = param('Redisplay_Lane_Popup');
-					} else  {
-						process_mass_spect_protein_to_band ();
+					my @params = param_check();
+					my $band_or_lane = param_check('band_or_lane');
+					my $update_or_delete = param_check('update_or_delete');
+					my $Redisplay_Lane_Popup = param_check('Redisplay_Lane_Popup');
+					my $cur_ms_search_engine = param_check('cur_ms_search_engine');
+					my $cur_local_ms_file = param_check('cur_local_ms_file'); #may have to figure it out
+					my $ms_protein_id_method = param_check('ms_protein_id_method'); 
+					my $ms_search_engine_for_band  = param_check('ms_search_engine_for_band '); 
+					my $mass_spect_file_for_band = param_check('mass_spect_file_for_band'); 
+					my $ms_protein_name = param_check('ms_protein_name'); 
+					my $incoming_band_id = param_check('Band_Id_for_Popup');
+					
+					my $save_err = "";
+					if ($band_or_lane eq 'lane')
+					{
+						$save_err = add_mass_spect_data_and_file_to_lane ();
+						##$Redisplay_Lane_Popup = param_check('Redisplay_Lane_Popup');
+					} else
+					{
+						$save_err = process_mass_spect_protein_to_band ();
+						print DEVEL_OUT "Save Band Error: '$err'\n";
 					}
-					my $Exp_Id = param('Exp_Id_for_Popup');
+					my $Exp_Id = param_check('Exp_Id_for_Popup');
 					#print out the experiment details page:
-					display_frame2('EXPERIMENT', 0, $Exp_Id);
+					display_frame2('EXPERIMENT', 0, $Exp_Id, 0, $save_err);
 				}
 				
 				##########################################################################################################
 				## Edit projects/experiments/users in the DB ##
 				elsif($action eq 'Edit')
 				{
-					my $page_type = param('page_type');
+					my $page_type = param_check('page_type');
 					if($page_type eq 'project')
 					{
-						my $project_id = param('project_parent_id');
+						my $project_id = param_check('project_parent_id');
 	
 						#print out the project details page w/ edit
 						display_frame2('PROJECT', 0, $project_id, 1);
 					}
 					elsif($page_type eq 'experiment')
 					{
-						my $exp_id = param('experiment_id');
+						my $exp_id = param_check('experiment_id');
 	
 						#print out the experiemnt details page w/ edit
 						display_frame2('EXPERIMENT', 0, $exp_id, 1);
@@ -1641,8 +2018,8 @@ START_HTML
 					#delete the file but first check if it is associated with any Projects/Experiments
 					#if it is then return message saying it cannot be deleted...
 					
-					my $sub_dir = param('SubDir');
-					my $file_name = param('File');
+					my $sub_dir = param_check('SubDir');
+					my $file_name = param_check('File');
 					$file_name = lc($file_name);
 					
 					#load experiments for this user:
@@ -1680,17 +2057,17 @@ START_HTML
 				}
 				elsif($action eq 'Cancel')
 				{
-					my $page_type = param('page_type');
+					my $page_type = param_check('page_type');
 					if($page_type eq 'project')
 					{
-						my $project_id = param('project_parent_id');
+						my $project_id = param_check('project_parent_id');
 	
 						#print out the project details page
 						display_frame2('PROJECT', 0, $project_id);
 					}
 					elsif($page_type eq 'experiment')
 					{
-						my $exp_id = param('experiment_id');
+						my $exp_id = param_check('experiment_id');
 	
 						#print out the experiemnt details page w/ edit
 						display_frame2('EXPERIMENT', 0, $exp_id);
@@ -1706,13 +2083,13 @@ START_HTML
 				}
 				elsif($action eq 'Save Changes')
 				{
-					my $page_type = param('page_type');
+					my $page_type = param_check('page_type');
 					if($page_type eq 'project')
 					{
-						my $project_id = param('project_parent_id');
-						my $new_name = param('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
-						my $new_description = param('project_description') || undef; #let description column be NULL if user enters no description
-						my @new_shared_users = param('shared_users');
+						my $project_id = param_check('project_parent_id');
+						my $new_name = param_check('project_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
+						my $new_description = param_check('project_description') || undef; #let description column be NULL if user enters no description
+						my @new_shared_users = param_check('shared_users',1);
 						
 						#save the changes to the database...
 						my $project = Biochemists_Dream::Project -> retrieve($project_id);
@@ -1735,13 +2112,13 @@ START_HTML
 					}
 					elsif($page_type eq 'experiment')
 					{
-						my $exp_id = param('experiment_id');
-						my $new_name = param('experiment_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
-						my $new_description = param('experiment_description') || undef; #let description column be NULL if user enters no description
-						#my $new_species = param('experiment_species');
-						my $new_proc_file = param('experiment_procedure');
+						my $exp_id = param_check('experiment_id');
+						my $new_name = param_check('experiment_name') || '?'; #error case if no name given, must have project name...!add javascript to block this!
+						my $new_description = param_check('experiment_description') || undef; #let description column be NULL if user enters no description
+						#my $new_species = param_check('experiment_species');
+						my $new_proc_file = param_check('experiment_procedure');
 						if ($new_proc_file eq '(none selected)') { $new_proc_file = undef; } else { $new_proc_file = lc($new_proc_file); }
-						my $new_gel_file = param('gel_details');
+						my $new_gel_file = param_check('gel_details');
 						if ($new_gel_file eq '(none selected)') { $new_gel_file = undef; } else { $new_gel_file = lc($new_gel_file); }
 	
 						#save the changes to the database...
@@ -1754,13 +2131,13 @@ START_HTML
 					}
 					elsif($page_type eq 'user')
 					{
-						my $new_fname = param('first_name');
-						my $new_lname = param('last_name');
-						my $new_orcid = param('orcid');
-						my $new_title = param('title');
-						my $new_inst = param('institution');
-						my $new_email = param('email');
-						my $new_pwd = param('password');
+						my $new_fname = param_check('first_name');
+						my $new_lname = param_check('last_name');
+						my $new_orcid = param_check('orcid');
+						my $new_title = param_check('title');
+						my $new_inst = param_check('institution');
+						my $new_email = param_check('email');
+						my $new_pwd = param_check('password');
 						if($new_pwd eq "    ") { $new_pwd = 0; }
 	
 						if($new_pwd)
@@ -1777,9 +2154,9 @@ START_HTML
 					}
 					elsif($page_type eq 'procedures')
 					{
-						my $new_name = param('name');
-						my $new_file_contents = param('file_contents');
-						my $proc_id = param('procedure_id');
+						my $new_name = param_check('name');
+						my $new_file_contents = param_check('file_contents');
+						my $proc_id = param_check('procedure_id');
 	
 						#open the file and save contents:
 						if(open(SOP_FILE, ">$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/$proc_id.txt"))
@@ -1826,6 +2203,242 @@ if($DEVELOPER_VERSION) { close(DEVEL_OUT); }
 
 ######################################################################################
 
+sub make_sql_safe_str
+{   
+    #This function REMOVES the following characters: \x00, \n, \r, \, ', " and \x1a.
+    
+    my $input = shift;
+    $input =~ s/'//g;
+    $input =~ s/"//g;
+    $input =~ s/\n//g;
+    $input =~ s/\r//g;
+    $input =~ s/\\//g;
+    $input =~ s/\x00//g;
+    $input =~ s/\x1a//g;
+    
+    return $input;
+}
+
+sub validate
+{
+    #check param name and value and returned escaped value OR if invalid return 0
+    my $param=shift;
+    my $value=shift;
+	
+	print DEVEL_OUT "param=$param, value=$value\n.";
+	$value =~ s/^\s+//;
+	$value =~ s/\s+$//;
+    
+    if ($value eq "") { return (1,''); } #allow for empty value
+    
+	my $valid_param=0;
+	my $code;
+	if(defined $ALLOWED_HTML_PARAM_NAMES{$param})
+	{ 
+		$valid_param = 1;
+		$code = $ALLOWED_HTML_PARAM_NAMES{$param};
+	}
+	else
+	{
+		foreach my $header (keys %ALLOWED_HTML_PARAM_HEADERS) 
+		{
+			if($param =~ /^$header/)
+			{
+				$valid_param = 1;
+				$code = $ALLOWED_HTML_PARAM_HEADERS{$header};
+				last;
+			}
+		}
+	}
+	
+    if ($valid_param)
+    {
+        my $first_char = substr($code, 0, 1);
+        my $last_char = substr($code, -1, 1);
+        if ($first_char eq '^' && $last_char eq '$')
+        { #it's a regex indicating the allowed string
+            
+            if ($value =~ /$code/)
+            {#valid, generate safe value (shouldn't be needed), and return
+                return (1,make_sql_safe_str($value)); 
+            }
+            else
+            {#invalid
+                open(my $f, '>>', "$BASE_DIR/$DATA_DIR/input_validation_report.txt") || die "Failed to open file in param_check, Please contact support\@copurification.org.";
+                print $f "Not valid: \'$param\' \'$value\'\n\n";
+                close $f;
+                return (0,0);
+            }
+        }
+        elsif($first_char eq '-' && $last_char eq '-')
+        { #it's -TEXT-, -PASSWORD- or -FILENAME-
+            if($code eq '-TEXT-')
+            {#allow any chars for text (?)
+                return (1,make_sql_safe_str($value)); # important that the safe version is used for SQL
+            }
+            elsif($code eq '-PASSWORD-')
+            {#allow any chars for password (?)
+                return (1,$value); # no changing of password, it won't be sent to SQL, it is encoded first
+            }
+            elsif($code eq '-FILENAME-')
+            {
+				#return (1,make_sql_safe_str(escape_filename($value))); # might as well check for valid file name as well
+				return (1,make_sql_safe_str($value)); # escape_filename returning blank value !?
+            } 
+        }
+        else
+        { #it's a comma separated list of valid values
+            my @valid_values = split(',', $code);
+            foreach my $valid_value (@valid_values)
+            {
+                if ($value eq $valid_value)
+                {
+                    return (1,make_sql_safe_str($value)); #shouldn't be necessary here, but just to be safe
+                }
+            }
+            #if reach here, value is not valid
+            open(my $f, '>>', "$BASE_DIR/$DATA_DIR/input_validation_report.txt") || die "Failed to open file in param_check, Please contact support\@copurification.org.";;
+            print $f "Not valid: \'$param\' \'$value\'\n\n";
+            close $f;
+            return (0,0);
+        }
+    }
+    else
+    {	
+		open(my $f, '>>', "$BASE_DIR/$DATA_DIR/input_validation_report.txt") || die "Failed to open file in param_check, Please contact support\@copurification.org.";
+		print $f "Not valid: \'$param\' \'$value\' (unkown parameter)\n\n";
+		close $f;
+		return (0,0);
+	}
+}
+
+sub param_check_file_name
+{
+	my $param_name = $_[0];
+	my $val = $_[1];
+	my ($is_valid,$safe_val) = validate($param_name, $val);
+	if (!$is_valid)
+	{
+		#invalid input or value
+		die "param_check_file_name() failed, Please contact support\@copurification.org.";
+	}
+	else
+	{
+		return $safe_val;
+	}
+}
+
+sub param_check
+{
+    #throws exception if param or value is invalid
+    #else returns value and sql_escaped value
+    #except when called with no args then just returns param()
+    if (scalar(@_) > 0)
+    {
+		my $param_name = $_[0];
+        my $is_array = 0;
+        if (scalar(@_) > 1)
+        {
+            #2nd input tells whether return val is an array, if it is absent, assume scalar
+            if ($_[1] != 0)
+            {
+                $is_array = 1;
+            }
+        }
+        
+        if ($is_array)
+        {
+            my @values=param($param_name);
+			if(not @values) { return @values; }
+            
+            my @safe_values;
+            my $invalid=0;
+            #check each value in array before returning...
+            foreach my $val (@values)
+            {
+                my ($is_valid,$safe_val) = validate($param_name, $val);
+                if (!$is_valid)
+                {
+					#invalid input or value
+					die "paramcheck() failed, Please contact support\@copurification.org.";
+                }
+                else
+                {
+                    push @safe_values, $safe_val;
+                }
+            }
+			return @safe_values;
+        }
+        else
+        {
+            my $val = param($param_name);
+			if(not defined $val) { return $val; }
+            my ($is_valid,$safe_val) = validate($param_name, $val);
+            if (!$is_valid)
+            {
+                #invalid input or value
+				die "paramcheck() failed, ($param_name, $val) Please contact support\@copurification.org.";
+            }
+            else
+            {
+                return $safe_val;
+            }
+        }
+    }
+    else
+    {
+		my @values=param();
+		return @values;
+    }
+}
+
+sub call_new_experiment
+{
+	my $id=shift;
+	my $root_dir=shift;
+	my $species=shift;
+	my $gel_remote_fname_list=shift;
+	my $gel_id_fname_list=shift;
+	my $gel_ext_fname_list=shift;
+	
+	if($DEVELOPER_VERSION) { print DEVEL_OUT "Calling new_experiment.pl: $id, $root_dir, $species, $gel_remote_fname_list, $gel_id_fname_list, $gel_ext_fname_list\n"; }
+	
+	#my $proc1 = Proc::Background->new("perl", "new_experiment.pl", "$id", "$root_dir", "$species", "$gel_remote_fname_list", "$gel_id_fname_list", "$gel_ext_fname_list");
+	system("perl new_experiment.pl \"$id\" \"$root_dir\" \"$species\" \"$gel_remote_fname_list\" \"$gel_id_fname_list\" \"$gel_ext_fname_list\" > /dev/null 2>&1 &");
+	
+	return "";
+
+}
+
+sub display_frameset_for_link
+{
+	my $sp=shift; #"Saccharomyces cerevisiae"; #"Homo sapiens";
+	my $pr=shift; #"1 NUP1"; #"43 zinc finger CCCH domain-containing protein 18 isoform 2";
+	my $us=shift; #"3 Zhanna Hakhverdyan"; #"63 Kinga Winczura";
+	print header();
+	
+	# http://copurification.org/copurification-cgi/copurification.pl?submit=SearchPublicGels
+	
+	print <<HTMLPAGE;
+		<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Frameset//EN"
+		   "http://www.w3.org/TR/html4/frameset.dtd">
+		<HTML>
+		<HEAD>
+		<TITLE>copurification.org</TITLE>
+		</HEAD>
+		<frameset cols="10%,80%,10%" border="1" framespacing="0">
+		<frame src="about:blank" />
+			<frameset rows="105,*,55">
+			 <frame src="../copurification-cgi/copurification.pl?frame=1p" name="frame1p" noresize scrolling="no">
+			 <FRAME src="../copurification-cgi/copurification.pl?action=Choose Reagents;species=$sp;protein=$pr;users=$us" name="frame2p" noresize>
+		 	<frame src="../copurification-html/footer.html" name="frame3p" noresize scrolling="no">
+		 	</frameset>
+		<frame src="about:blank" />
+		</frameset>
+		</HTML>
+HTMLPAGE
+}
+
 #cookie, type, mode, message
 sub display_frameset
 {
@@ -1858,10 +2471,10 @@ sub display_frameset
 		<frameset cols="10%,80%,10%" border="1" framespacing="0">
 		<frame src="about:blank" />
 			<frameset rows="105,*,55">
-			<frame src="../copurification-cgi/copurification.pl?frame=1p" name="frame1p" noresize scrolling="no">
-			<FRAME src="../copurification-cgi/copurification.pl?frame=2p;mode=$mode" name="frame2p" noresize>
-			<frame src="../copurification-html/footer.html" name="frame3p" noresize scrolling="no">
-			</frameset>
+			 <frame src="../copurification-cgi/copurification.pl?frame=1p" name="frame1p" noresize scrolling="no">
+			 <FRAME src="../copurification-cgi/copurification.pl?frame=2p;mode=$mode" name="frame2p" noresize>
+		 	<frame src="../copurification-html/footer.html" name="frame3p" noresize scrolling="no">
+		 	</frameset>
 		<frame src="about:blank" />
 		</frameset>
 		</HTML>
@@ -1900,11 +2513,11 @@ HTMLPAGE
 sub display_private_query_page
 {
 	#first, experiments
-	my @exp_ids = param('experiment_checkbox');
+	my @exp_ids = param_check('experiment_checkbox',1);
 	my $exp_id_list = join(',', @exp_ids);
 
 	#next, projects
-	my @proj_ids = param('project_checkbox');
+	my @proj_ids = param_check('project_checkbox',1);
 	my $proj_id_list = join(',', @proj_ids);
 	
 	#retrieving species for the selected projects/experiments 
@@ -2056,19 +2669,19 @@ FUNCTIONS
 sub display_private_query_page2
 {
 	#read in species/protein/PROJECTS/EXPERIMENTS
-	my $species = param('species');
-	my $protein = param('protein');
+	my $species = param_check('species');
+	my $protein = param_check('protein');
 	
-	my @projs_name = param('projects_name');
+	my @projs_name = param_check('projects_name',1);
 	print hidden('projects_name', @projs_name);
-	my @projs_id = param('projects_id');
+	my @projs_id = param_check('projects_id',1);
 	print hidden('projects_id', @projs_id);
 	
-	my @exps_name = param('exps_name');
+	my @exps_name = param_check('exps_name',1);
 	print hidden('exps_name', @exps_name);
-	my @exps_id = param('exps_id');
+	my @exps_id = param_check('exps_id',1);
 	print hidden('exps_id', @exps_id);
-	my @exps_proj_name = param('exps_proj_name');
+	my @exps_proj_name = param_check('exps_proj_name',1);
 	print hidden('exps_proj_name', @exps_proj_name);
 	
 	my $protein_id;
@@ -2140,7 +2753,7 @@ sub display_reagent_ranges_for_query
 	my $chosen = 0;
 	foreach (@types)
 	{
-		my @reagents_chosen = param("list_include_$_");
+		my @reagents_chosen = param_check("list_include_$_",1);
 		if(@reagents_chosen) { $chosen = 1; last; }
 	}
 	if ($chosen)
@@ -2200,7 +2813,7 @@ FUNCTIONS2
 		
 		foreach (@types)
 		{
-			my @reagents_chosen = param("list_include_$_");
+			my @reagents_chosen = param_check("list_include_$_",1);
 			if(@reagents_chosen)
 			{
 				my $sth;
@@ -2271,7 +2884,7 @@ FUNCTIONS2
 	@ids = (); my $num_exclude = 0;
 	foreach (@types)
 	{
-		my @reagents_chosen = param("list_exclude_$_");
+		my @reagents_chosen = param_check("list_exclude_$_",1);
 		if(@reagents_chosen)
 		{
 			print "<tr><td>$_(s): ";
@@ -2330,26 +2943,26 @@ FUNCTIONS2
 sub display_private_query_page3
 {
 	#read in species/protein/PROJECTS/EXPERIMENTS
-	my $species = param('species');
-	my $protein = param('protein');
+	my $species = param_check('species');
+	my $protein = param_check('protein');
 	
-	my @projs_name = param('projects_name');
+	my @projs_name = param_check('projects_name',1);
 	print hidden('projects_name', @projs_name);
-	my @projs_id = param('projects_id');
+	my @projs_id = param_check('projects_id',1);
 	print hidden('projects_id', @projs_id);
 	
-	my @exps_name = param('exps_name');
+	my @exps_name = param_check('exps_name',1);
 	print hidden('exps_name', @exps_name);
-	my @exps_id = param('exps_id');
+	my @exps_id = param_check('exps_id',1);
 	print hidden('exps_id', @exps_id);
-	my @exps_proj_name = param('exps_proj_name');
+	my @exps_proj_name = param_check('exps_proj_name',1);
 	print hidden('exps_proj_name', @exps_proj_name);
 	
 	#read in srf chosen value, save as hidden field 
-	my $srf_choice = param('srf_choice');
+	my $srf_choice = param_check('srf_choice');
 	print hidden('srf_choice', $srf_choice);
 	
-	my $search_type = param('search_type');
+	my $search_type = param_check('search_type');
 
 	my $protein_id;
 	
@@ -2358,7 +2971,7 @@ sub display_private_query_page3
 	private_query_display_search_info($species, $protein, \@projs_name, \@exps_name, \@exps_proj_name, $protein_id);
 		
 	#print Single Reagent Flag choice
-	    $srf_choice = param('srf_choice');
+	    $srf_choice = param_check('srf_choice');
 	if ($srf_choice eq 'multiple') {
 		print '<br>Lanes with either a single reagent or multiple reagents will be displayed.<br><br>';
 	} else {
@@ -2518,9 +3131,9 @@ FUNCTIONS
 sub display_public_query_page2
 {
 	#read in species/protein/user(s)
-	my $species = param('species');
-	my $protein = param('protein');
-	my @users = param('users');
+	my $species = param_check('species');
+	my $protein = param_check('protein');
+	my @users = param_check('users',1);
 	
 	my $protein_id; my $user_ids;
 	
@@ -2539,11 +3152,11 @@ sub display_public_query_page2
 sub display_public_query_page3
 {
 	#read in species/protein/user(s)
-	my $species = param('species');
-	my $protein = param('protein');
-	my @users = param('users');
-	my @users_ids = param('user_ids');
-	my $search_type = param('search_type');
+	my $species = param_check('species');
+	my $protein = param_check('protein');
+	my @users = param_check('users',1);
+	my @users_ids = param_check('user_ids',1);
+	my $search_type = param_check('search_type');
 		
 	#turn user ids into comma separated lists for sql statment
 	my $user_id_list = "";
@@ -2874,6 +3487,7 @@ sub display_frame2
 	my $reload_frame1 = shift;
 	my $id = shift;
 	my $edit = shift;
+	my $err_msg = shift;
 
 	if($reload_frame1)
 	{
@@ -2891,7 +3505,7 @@ sub display_frame2
 	elsif($mode eq 'EXPERIMENT')
 	{
 		print qq!<form id="main_form" name="main_form" method="post" action="/copurification-cgi/copurification.pl" enctype="multipart/form-data" target="frame2">!;
-		display_experiment_page($id, $edit);
+		display_experiment_page($id, $edit, $err_msg);
 	}
 	elsif($mode eq 'QUERY')
 	{
@@ -3009,7 +3623,7 @@ sub display_home
 		which has been seeded with data resulting from our recently developed
 		affinity capture conditions screening process (<a href="http://www.nature.com/nmeth/journal/vaop/ncurrent/full/nmeth.3395.html" target="blank">Hakhverdyan et al</a>),
 		and also <a href="../copurification-cgi/copurification.pl?submit=CreateAccount" target='frame2p'>create an account</a>
-		if you’d like to upload
+		if you'd like to upload
 		and manage your own gels.  Your data are kept private until you choose to release them to the public (e.g. after publication).
 		For more details, please see the <a href="../copurification-html/About.html" target="frame2p">About</a> page.<p>
 		<p>This is public beta version 0.9 of this site and it will continually evolve to meet the needs of curating and data
@@ -3021,14 +3635,9 @@ sub display_home
 		<p><img src="../copurification-html/new.jpg" height="20" width="27">&nbsp;&nbsp;Latest Updates...<br>
 		<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * We have added support for the curation of Mouse genes via MGI systematic naming.
 		<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * A new feature has been added so that users can share Projects and Experiments with other users of the system.  
-		<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * When conducting experiments either a single reagent or multiple reagents may used to separate the proteins
-within a single lane of a gel.  The decision to conduct an experiment either way can have an effect on results.
-Comparing gels using different methods (single vs multiple) may cause issues  in comparing data.  The ability to
-flag a lane as Single Reagent or Multiple Reagent has been added to the processing.  Further,  in searching gels for
-further analysis,  a researcher now has the ability to choose to include only Single Reagents or to include Multiple Reagents.
 		<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * The ability to assign a protein or possible proteins to gel data has now been added.  At the lane level,
-an XML file from a MS Search Engine may be assigned and used for further analysis.  Currently, four search
-engines are accepted: XTandem, SEQUEST, Mascot, MSGFPlus.  In addition, proteins may be assigned at the band level.
+an XML file from a MS Search Engine may be assigned and used for further analysis.  Currently, 5 search
+engines are accepted: XTandem, SEQUEST, Mascot, MSGFPlus, Andromeda.  In addition, proteins may be assigned at the band level.
 This may be done by assigning a protein name to the band based on one of three Protein ID Methods (Western Blot, Mass
 Spectrometry, or Other).  When choosing MS, a file must be assigned as well just as in the lane assignment.
 
@@ -3193,6 +3802,21 @@ sub display_private_error_page
 
 	print p($msg);
 		
+	display_footer();
+	
+}
+
+sub display_add_exp_wait_page
+{
+	my $log_file_url=shift;
+	my $js="\$(document).ready(function(){check_show_results('$log_file_url');});";
+	
+	display_title_header('FRAME2',$js);
+
+	# TODO 
+	print p("Creating Experiment...please refresh until Success or Error message...");
+	print "<div id='new_exp_result' name='new_exp_result'></div>";
+	print "<button onclick=\"check_show_results('$log_file_url')\">Refresh status</button>";
 	display_footer();
 	
 }
@@ -3468,7 +4092,7 @@ sub display_project_page
 
 	print hidden('project_parent_id', $id);
 
-	if($cur_user_id == $g_user_id && $edit)
+	if($edit) #($cur_user_id == $g_user_id && $edit)  # John wants to be able to edit shared projects
 	{
 		my @users = Biochemists_Dream::User -> retrieve_all();
 		
@@ -3535,15 +4159,15 @@ sub display_project_page
 			  p("Description: $description"),
 			  p("Shared with: $shared_users");
 			  
-		if($cur_user_id == $g_user_id)
+		if(1) #$cur_user_id == $g_user_id) # John wants to be able to edit shared projects
 		{ print submit('submit', 'Edit'); }
 			  
 		print hidden('page_type', 'project');
 	}
 	
-	if($cur_user_id == $g_user_id)
+	if(1) #$cur_user_id == $g_user_id) # John wants to be able to edit shared projects
 	{
-		display_add_experiment($name);
+		display_add_experiment($name, $cur_user_id);
 	
 		print "<hr>";
 	
@@ -3569,8 +4193,6 @@ sub display_title_header
 
 	$g_header = 1; #notify error page that header has been displayed
 	
-	
-	
 	if($mode eq 'FRAME1')
 	{
 		print <<START_HTML;	
@@ -3579,7 +4201,7 @@ sub display_title_header
 <meta charset="utf-8">
 <title>copurification.org</title>
 <link rel="stylesheet" href="../copurification-html/jquery-ui-1.10.1.custom.min.css">
-<link rel="stylesheet" href="../copurification-html/main.css">
+<link rel="stylesheet" href="../copurification-html/main2.css">
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
@@ -3595,8 +4217,9 @@ sub display_title_header
 </head>
 <body style="margin:10;">
 START_HTML
-		print_javascript($js);
-		
+
+		print_javascript($js); 
+
 		print qq!<form method="post" action="/copurification-cgi/copurification.pl" enctype="multipart/form-data" target="frame2">!,
 			  h3('My Projects');
 			  #hr();
@@ -3609,10 +4232,11 @@ START_HTML
 <meta charset="utf-8">
 <title>copurification.org</title>
 <link rel="stylesheet" href="../copurification-html/jquery-ui-1.10.1.custom.min.css">
-<link rel="stylesheet" href="../copurification-html/main.css">
+<link rel="stylesheet" href="../copurification-html/main2.css">
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script src="/copurification-html/setup6.js" type="text/javascript"></script>
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -3625,10 +4249,8 @@ START_HTML
 </head>
 <body style="margin:10;">
 START_HTML
-		print_javascript($js);
-		
-		
-			  
+		print_javascript($js); 
+		  
 	}
 	elsif($mode eq 'FRAME3')
 	{
@@ -3654,36 +4276,32 @@ START_HTML
 </head>
 <body style="margin:10;">
 START_HTML
-		print_javascript($js);
+		print_javascript($js); 
 		
 		#get user info for logged in message
 		my $first_name = $g_the_user -> get('First_Name');
 		my $last_name = $g_the_user -> get('Last_Name');
 		my $email = $g_the_user -> get('Email');
-#converted FAQ page to HTML page like "HOWTO"
-#this is the line taken out
-#a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=FAQ", target=>'frame2'}, "FAQ"),
-#BAromando 08042016
-print 	qq!<h2 style="display:inline">copurification.org</h2>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Logged in: $first_name $last_name ($email)<br><br>!,
-			qq!<form method="post" action="/copurification-cgi/copurification.pl" enctype="multipart/form-data" target="frame3">!,
-			qq!<a href="../copurification-cgi/copurification.pl?submit=OpenPublicView" target="frame2">Search Public Gels</a>!, 
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-cgi/copurification.pl?frame=2", target=>'frame2'}, "New Project"),
-			"&nbsp;|&nbsp;",
-			
-			a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=Edit;page_type=user", target=>'frame2'}, "My Account"),
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=MyProcedures", target=>'frame2'}, "Manage Files"),
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-html/HowTo.html", target=>'frame2'}, "HOWTO"),
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-html/FAQ.html", target=>'frame2'}, "FAQ"),
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-html/About.html", target=>'frame2'}, "About"),
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=Contact", target=>'frame2'}, "Contact"),
-			"&nbsp;|&nbsp;",
-			a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=Logout", target=>'_parent'}, "Logout");
+
+		print 	qq!<h2 style="display:inline">copurification.org</h2>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Logged in: $first_name $last_name ($email)<br><br>!,
+				qq!<form method="post" action="/copurification-cgi/copurification.pl" enctype="multipart/form-data" target="frame3">!,
+				qq!<a href="../copurification-cgi/copurification.pl?submit=OpenPublicView" target="frame2">Search Public Gels</a>!, 
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-cgi/copurification.pl?frame=2", target=>'frame2'}, "New Project"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=Edit;page_type=user", target=>'frame2'}, "My Account"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=MyProcedures", target=>'frame2'}, "Manage Files"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-html/HowTo.html", target=>'frame2'}, "HOWTO"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-html/FAQ.html", target=>'frame2'}, "FAQ"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-html/About.html", target=>'frame2'}, "About"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=Contact", target=>'frame2'}, "Contact"),
+				"&nbsp;|&nbsp;",
+				a({href=>"../copurification-cgi/copurification.pl?frame=2;submit=Logout", target=>'_parent'}, "Logout");
 			
 		
 	}
@@ -3712,7 +4330,7 @@ print 	qq!<h2 style="display:inline">copurification.org</h2>&nbsp;&nbsp;&nbsp;&n
 </head>
 <body style="margin:10;">
 START_HTML
-		print_javascript($js);
+		print_javascript($js); 
 		print h2('copurification.org');
 	}
 	elsif($mode eq 'PUBLIC2')
@@ -3723,7 +4341,7 @@ START_HTML
 <meta charset="utf-8">
 <title>copurification.org</title>
 <link rel="stylesheet" href="../copurification-html/jquery-ui-1.10.1.custom.min.css">
-<link rel="stylesheet" href="../copurification-html/main.css">
+<link rel="stylesheet" href="../copurification-html/main2.css">
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
@@ -3740,7 +4358,7 @@ START_HTML
 </head>
 <body style="margin:10;">
 START_HTML
-		print_javascript($js);
+		print_javascript($js); 
 		
 	}
 	else
@@ -3751,10 +4369,11 @@ START_HTML
 <meta charset="utf-8">
 <title>copurification.org</title>
 <link rel="stylesheet" href="../copurification-html/jquery-ui-1.10.1.custom.min.css">
-<link rel="stylesheet" href="../copurification-html/main.css">
+<link rel="stylesheet" href="../copurification-html/main2.css">
 <script src="../copurification-html/jquery-1.9.1.js"></script>
 <script src="../copurification-html/jquery-ui-1.10.1.custom.min.js"></script>
 <script src="../copurification-html/jquery.MultiFile.pack.js"></script>
+<script src="/copurification-html/setup_search_results.js" type="text/javascript"></script>
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -3768,8 +4387,7 @@ START_HTML
 </head>
 <body style="margin:10;">
 START_HTML
-		print_javascript($js);
-		
+		print_javascript($js); 
 	}
 }
 
@@ -3801,9 +4419,33 @@ sub display_gel_details
 {
 	my $gel = shift;
 	my $user_id = shift;
+	my $img_str = shift;
+	
+	my $style_str0 = '';
+	my $style_str1=qq!style="display:none"!;
+	my $style_str2=qq!style="display:none"!;
+	my $style_str3=qq!style="display:none"!;
+	if ($img_str eq '-n')
+	{
+        $style_str0 = qq!style="display:none"!;
+		$style_str1='';
+    }
+	elsif($img_str eq '-nn')
+	{
+		$style_str0 = qq!style="display:none"!;
+		$style_str2='';
+	}
+	elsif($img_str eq '-nnn')
+	{
+		$style_str0 = qq!style="display:none"!;
+		$style_str3='';
+		
+	}
+	
 	my $exp_id = $gel -> get("Experiment_Id");
 	my $gel_num = $gel -> get("File_Id");
 	my $gel_type = $gel -> get("File_Type");
+	
 	my $gel_id = $gel -> get('Id');
 	my $public = $gel -> get('Public');
 	my $err_description = $gel -> get('Error_Description');
@@ -3816,32 +4458,35 @@ sub display_gel_details
 	my $units = "";
 	
 #	add ms database pop up
+	print qq!<div id="gel-$gel_id">!;
 	
-	print qq!<input type="hidden" id="Exp_Id_for_Popup" name="Exp_Id_for_Popup" value="$exp_id">!;	
-	print qq!<input type="hidden" id="Gel_No_for_Popup" name="Gel_No_for_Popup" value="$gel_num">!;
-	print qq!<input type="hidden" id="Gel_Id_for_Popup" name="Gel_Id_for_Popup" value="$gel_id">!;
-	#print qq!<input type="hidden" id="Lane_Order_for_Popup" name="Lane_Order_for_Popup" value="">!; moved into subroutine was clearing out the data
-	#print qq!<input type="hidden" id="Band_Id_for_Popup" name="Band_Id_for_Popup" value="">!;
-	#print qq!<input type="hidden" id="Band_Id_for_File" name="Band_Id_for_File" value="">!;
-	print qq!<input type="hidden" id="band_or_lane" name="band_or_lane" value="lane">!;
-	print qq!<input type="hidden" id="update_or_delete" name="update_or_delete" value="">!;
-	print qq!<input type="hidden" id="Protein_Id_for_Rollover" name="Protein_Id_for_Rollover" value="">!;
+	##print qq!<input type="hidden" id="Exp_Id_for_Popup" name="Exp_Id_for_Popup" value="$exp_id">!;	
+	###print qq!<input type="hidden" id="Gel_No_for_Popup" name="Gel_No_for_Popup" value="$gel_num">!;
+	###print qq!<input type="hidden" id="Gel_Id_for_Popup" name="Gel_Id_for_Popup" value="$gel_id">!;
+	###print qq!<input type="hidden" id="Lane_Order_for_Popup" name="Lane_Order_for_Popup" value="">!; moved into subroutine was clearing out the data
+	###print qq!<input type="hidden" id="Band_Id_for_Popup" name="Band_Id_for_Popup" value="">!;
+	###print qq!<input type="hidden" id="Band_Id_for_File" name="Band_Id_for_File" value="">!;
+	##print qq!<input type="hidden" id="band_or_lane" name="band_or_lane" value="lane">!;
+	##print qq!<input type="hidden" id="update_or_delete" name="update_or_delete" value="">!;
+	##print qq!<input type="hidden" id="Protein_Id_for_Rollover" name="Protein_Id_for_Rollover" value="">!;
+	##
+	##print qq!<input type="hidden" id="Redisplay_Lane_Popup" name="Redisplay_Lane_Popup" value="No">!;
+	##print qq!<input type="hidden" id="Redisplay_Current_Lane_Data" name="Redisplay_Current_Lane_Data" value="No">!;
+	##print qq!<input type="hidden" id="Redisplay_Band_Popup" name="Redisplay_Band_Popup" value="No">!;
+	##print qq!<input type="hidden" id="Cur_Systematic_Name_For_Band" name="Cur_Systematic_Name_For_Band">!;
+	##print qq!<input type="hidden" id="Save_Lane_Order_for_Band_Processing" name="Save_Lane_Order_for_Band_Processing">!;
+	##
+	##create_ms_search_engine_html ($display_name);
+	##create_add_protein_to_band_html ();
 	
-	print qq!<input type="hidden" id="Redisplay_Lane_Popup" name="Redisplay_Lane_Popup" value="No">!;
-	print qq!<input type="hidden" id="Redisplay_Current_Lane_Data" name="Redisplay_Current_Lane_Data" value="No">!;
-	print qq!<input type="hidden" id="Redisplay_Band_Popup" name="Redisplay_Band_Popup" value="No">!;
-	print qq!<input type="hidden" id="Cur_Systematic_Name_For_Band" name="Cur_Systematic_Name_For_Band">!;
-	print qq!<input type="hidden" id="Save_Lane_Order_for_Band_Processing" name="Save_Lane_Order_for_Band_Processing">!;
-
-	create_ms_search_engine_html ();
-	#print qq!<br>!;
-	
-#	add protein pop up 
-	create_add_protein_to_band_html ();
 	print qq!<br>!;
 	
 	my $Shared_Project = 0;
 	if($g_user_id != $user_id) {$Shared_Project = 1;}
+	
+	my $display_name_ = $display_name;
+	$display_name_ =~ s/\'//g;
+	$display_name_ =~ s/\"//g;
 	
 	foreach my $lane (@lanes)
 	{
@@ -3858,30 +4503,33 @@ sub display_gel_details
 		my $local_ms_fname;
 		my $local_fname;
 		my $MS_File_Suffix;
+		my $xml_file=0;
 		#if found add to title for mouse rollover - BA2016
-		if (defined $ms_search_engine) {
+		if (defined $ms_search_engine)
+		{
 			$show_current_data = 1; # 1 = yes
 			$lane_color = "green";
 			$lane_title = "Search Engine: $ms_search_engine";
 			$MS_File_Suffix = $lane -> get("MS_File_Suffix");
-			if (defined $MS_File_Suffix) {
-				my $experiment_dir = "/copurification/$g_user_id/Experiments";
+			if (defined $MS_File_Suffix)
+			{
+				if ((lc $MS_File_Suffix) eq "xml") { $xml_file=1; }
+                
+				#my $experiment_dir = "/copurification/$g_user_id/Experiments";
+				my $experiment_dir = "/copurification/$user_id/Experiments";
 				$local_ms_fname = "gel$gel_num.lane.$lane_order.ms";
 				$local_fname = "$experiment_dir/$exp_id/$local_ms_fname.$MS_File_Suffix";
-			} else {print DEVEL_OUT "MS File Suffix could not be found.  Something is wrong!\n";} 
-			
-		} else {
+			}
+			else { print DEVEL_OUT "MS File Suffix could not be found.  Something is wrong!\n"; } 
+		}
+		else
+		{
 			$ms_search_engine = " ";
 			$local_fname = " ";
 			$lane_color = "blue";
 		}		
 		$ms_search_engine = "\'" . $ms_search_engine . "\'";
-#		push @cur_cols, $lane_order;
-#   updated this line for the ms seach engine pop up
-
-		#my $Shared_Project = test_for_shared_project($exp_id, $user_id);
-		
- 		push @cur_cols, qq!<a id="popup_for_lane$lane_order" title="$lane_title" style="color: $lane_color" onclick="show_popup_for_lane('Add MS Database to Lane',$gel_num,$lane_order,$show_current_data,$ms_search_engine,&quot;$local_fname&quot;,$Shared_Project)" href="#Add MS Database to Lane">$lane_order</a>!;
+ 		push @cur_cols, qq!<a id="popup_for_lane$gel_num\_$lane_order" title="$lane_title" style="color: $lane_color" onclick="show_popup_for_lane('Add MS Database to Lane',$gel_id,$gel_num,\'$display_name_\',$lane_order,$show_current_data,$ms_search_engine,&quot;$local_fname&quot;,$Shared_Project,$xml_file)" href="#Add MS Database to Lane">$lane_order</a>!;
 	}
 
 	push @table_rows, th(\@cur_cols); #th(['Lane', 'Bands (masses, kDa)']);
@@ -3896,16 +4544,17 @@ sub display_gel_details
 		
 		if(!$err_description && @bands)
 		{#dont show mass/amounts if there's an error in processing the gel or the bands were not quantified
-		#	changed this statement to include additional information for band update as part of mass spect 
-		#	my $html_str = create_imagemap_html(\@bands, $lane_id, $units);
-		 	my $html_str = create_imagemap_html(\@bands, $lane_id, $units, $lane_order, $gel_num, $exp_id, $Shared_Project);
+			
+		 	my $html_str = create_imagemap_html_for_gel(\@bands, $lane_id, $units, $lane_order, $gel_num, $display_name_, $exp_id, $Shared_Project, $user_id);
 			print $html_str;
 		}
 		#output lane image...also, output normalized image, but hide it:
-		$Switch_Color = param('switch_color');
-		push @cur_cols, qq!<div name="lane_image"><img onload="update_lane_color_for_band('popup_for_lane$lane_order', $Switch_Color)" src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.png"; usemap="#$lane_id"></div>\
-			       <div name="norm_lane_image" style="display:none"><img src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.n.png"; usemap="#$lane_id"></div>\
-			       <div name="norm_lane_image2" style="display:none"><img src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.nn.png"; usemap="#$lane_id"></div>!;
+		$Switch_Color = param_check('switch_color');
+		
+		push @cur_cols, qq!<div name="lane_image" $style_str0><img class="lane_img" id="$gel_id-$lane_id" onload="update_lane_color_for_band('popup_for_lane$gel_num\_$lane_order', $Switch_Color)" src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.png"; usemap="#$lane_id"></div>\
+			       <div name="norm_lane_image" $style_str1><img class="lane_img" id="$gel_id-$lane_id-n" src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.n.png"; usemap="#$lane_id"></div>\
+			       <div name="norm_lane_image2" $style_str2><img class="lane_img" id="$gel_id-$lane_id-nn" src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.nn.png"; usemap="#$lane_id"></div>\
+				   <div name="norm_lane_image3" $style_str3><img class="lane_img" id="$gel_id-$lane_id-nnn" src="/copurification/$user_id/Experiments/$exp_id/gel$gel_num.lane.$lane_order.nnn.png"; usemap="#$lane_id"></div>!;
 	}
 	push @table_rows, td(\@cur_cols);
 
@@ -3924,18 +4573,29 @@ sub display_gel_details
 		}
 		
 	}
-
-	print br(), br();
+	print br();
+	#print "&nbsp;&nbsp;&nbsp;&nbsp;";
+	print qq!<button type="button" disabled id="save_bands_gel-$gel_id" name="save_bands_gel-$gel_id" class="save_bands_button">Save Bands</button>!;
+	print "&nbsp;&nbsp;&nbsp;";
+	print qq!<button type="button" disabled id="clear_bands_gel-$gel_id" name="clear_bands_gel-$gel_id" class="clear_bands_button">Clear Bands</button>!;
+	
+	print br(),br();
 	print table({-border=>0, -rules=>'cols'}, caption(""), Tr({-align=>'CENTER', -valign=>'TOP'}, \@table_rows));
+	print qq!</div>!;
 }
 
 sub create_ms_search_engine_html 
 {
-#redisplay logic
-	my @params = param();
-	my $Redisplay_Lane_Popup = param('Redisplay_Lane_Popup');
-	my $Gel_No = param('Gel_No_for_Popup'); #do I need this here?
-	my $Lane_Order = param('Lane_Order_for_Popup');
+	my $display_name_ = shift;	
+	$display_name_ =~ s/\'//g;
+	$display_name_ =~ s/\"//g;
+	
+	#redisplay logic
+	my @params = param_check();
+	my $Redisplay_Lane_Popup = param_check('Redisplay_Lane_Popup');
+	my $Gel_No = param_check('Gel_No_for_Popup'); #do I need this here?
+	my $Lane_Order = param_check('Lane_Order_for_Popup');
+	my $Gel_Name = param_check("Gel_Id_for_Popup");
 
 	my $display_lane_popup;
 	my $lane_gel_id;
@@ -3946,7 +4606,7 @@ sub create_ms_search_engine_html
 	my $display_lane_delete;
 	my $redisplay_search_engine;
 	my $redisplay_results_file;
-	if ($Redisplay_Lane_Popup eq "Yes") {
+	if (0) { #$Redisplay_Lane_Popup eq "Yes") {
 		$display_lane_popup = "";
 		$display_lane_delete  = "";
 		$lane_gel_id = $Gel_No;
@@ -3967,7 +4627,8 @@ sub create_ms_search_engine_html
 		}
 		#
 		print qq!<input type="hidden" id="Lane_Order_for_Popup" name="Lane_Order_for_Popup" value="$Lane_Order">!;
-	} else {
+	}
+	else {
 		$display_lane_popup = "none";
 		$display_lane_delete  = "none";
 		$lane_gel_id = "?";
@@ -3980,13 +4641,9 @@ sub create_ms_search_engine_html
 		#
 		#print qq!<input type="hidden" id="Lane_Order_for_Popup" name="Lane_Order_for_Popup" value="">!;
 	}
-#redisplay logic BA 20160608
-#print qq!<div id="Add MS Database to Lane" style="display:none">!;
-print qq!<div id="Add MS Database to Lane" style="display: $display_lane_popup">!;
-
-print qq!<h4 id='Lane Popup Header'>For Gel <span id='Gel_Id_for_Display' name='Gel_Id_for_Display'>$lane_gel_id</span>, Lane <span id='LaneOrder' name='LaneOrder'>$lane_lane_order</span></h4>!;
-
-#	print qq!<table id="Display Existing Lane Info" style="width: 100%;margin-top: 10px;margin-left: 0px; border-style: solid;  display: none">!;
+	
+	print qq!<div id="Add MS Database to Lane" style="display: $display_lane_popup">!;
+	print qq!<h4 id='Lane Popup Header'>For Gel <span id='Gel_Id_for_Display' name='Gel_Id_for_Display'>$display_name_</span>, Lane <span id='LaneOrder' name='LaneOrder'>$lane_lane_order</span></h4>!;
 	print qq!<table id="Display Existing Lane Info" style="width: 100%;margin-top: 10px;margin-left: 0px; border-style: solid;  display: $display_current_lane_data">!;
 	print qq!<tr>!;
 	print qq!  <td>Current Data: </td>!;
@@ -4001,60 +4658,66 @@ print qq!<h4 id='Lane Popup Header'>For Gel <span id='Gel_Id_for_Display' name='
 	print qq!</tr>!;
 	print qq!</table>!;
 
-print qq!<table id="Lane Input Panel" style="width: 100%;margin-top: 10px;margin-left: 0px; border-style: solid;">!;
-print qq!<tr>!;
-print qq!  <td>Enter/Update MS Search Engine: </td>!;
-print qq!  <td><select id="ms_search_engine" name="ms_search_engine">!;
-print qq! 		 <option id="Xtandem" value="Xtandem">XTandem</option>!;
-print qq!  		 <option value="SEQUEST">SEQUEST</option>!;
-print qq!  		 <option value="Mascot">Mascot</option>!;
-print qq!  		 <option value="MSGFplus">MSGFplus</option>!;
-print qq!	   </select>!;
-print qq!  </td>!;
-print qq!</tr>!;
+	print qq!<table id="Lane Input Panel" style="width: 100%;margin-top: 10px;margin-left: 0px; border-style: solid;">!;
+	print qq!<tr>!;
+	print qq!  <td>MS Search Engine: </td>!;
+	print qq!  <td><select id="ms_search_engine" name="ms_search_engine">!;
+	print qq! 		 <option id="Xtandem" value="Xtandem">XTandem</option>!;
+	print qq!  		 <option value="SEQUEST">SEQUEST</option>!;
+	print qq!  		 <option value="Mascot">Mascot</option>!;
+	print qq!  		 <option value="MSGFplus">MSGFplus</option>!;
+	print qq!  		 <option value="Andromeda">Andromeda</option>!;
+	print qq!	   </select>!;
+	print qq!  </td>!;
+	print qq!</tr>!;
 
-print qq!<tr>!;
-print qq!  <td>Upload/Overlay MS Search Results File: </td>!;
-print qq!  <td><input type="file" name="mass_spect_file" id="mass_spect_file"></td>!; 
-print qq!</tr>!;
-
-print qq!<tr>!;
-print qq!  <td>!;
-print qq!    <input type="Submit" id="addMassSpectButton" name="submit" value="Add MS Data" onclick="addMassSpectData('lane','Update');">!;
-print qq!    <input type="Submit" id="delMassSpectButton" name="submit" value="Del MS Data" style="display: $display_lane_delete" onclick="addMassSpectData('lane','Delete');">!;
-print qq!    <input type="button" value="Close" onclick="hide_popup_for_lane('Add MS Database to Lane')">!;
-print qq!  </td>!;
-print qq!</tr>!;
-print qq!<tr>!;
-print qq!  <td>!;
+	print qq!<tr>!;
+	print qq!  <td>MS Search Results File: </td>!;
+	print qq!  <td><input type="file" name="mass_spect_file" id="mass_spect_file"></td>!;
+	#print qq!<span id='info_message_for_lane_file' style="display: none">(leave blank to keep current file)</span></td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!  <td>!;
+	print qq!    <input type="Submit" id="addMassSpectButton" name="submit" value="Save MS Data" onclick="addMassSpectData('lane','Update');">!;
+	print qq!    <input type="Submit" id="delMassSpectButton" name="submit" value="Del MS Data" style="display: $display_lane_delete" onclick="addMassSpectData('lane','Delete');">!;
+	print qq!    <input type="button" value="Close" onclick="hide_popup_for_lane('Add MS Database to Lane')">!;
+	print qq!  </td>!;
+	print qq!</tr>!;
+	print qq!<tr>!;
+	print qq!  <td>!;
 	print qq!<span id='error_message_for_lane_popup' style="display: $display_lane_popup">$lane_popup_error_message</span>!;
-print qq!  </td>!;
-print qq!</tr>!;
-
-print qq!</table>!;
+	print qq!  </td>!;
+	print qq!</tr>!;
+	
+	print qq!</table>!;
 
 print qq!</div>!;
 }
 
 sub create_add_protein_to_band_html   
 {
-#redisplay logic
-	my @params = param();
-	my $Exp_Id = param('Exp_Id_for_Popup');
-	my $Redisplay_Band_Popup = param('Redisplay_Band_Popup');
-	my $Gel_No = param('Gel_No_for_Popup'); 
-	my $Lane_Order = param('Lane_Order_for_Popup');
-	my $Band_Mass = param('Band_Mass_for_Popup');
-	my $Band_Id_for_Popup = param('Band_Id_for_Popup');
-	my $Band_Id_for_File = param('Band_Id_for_File');
+	my $display_name_ = shift;	
+	$display_name_ =~ s/\'//g;
+	$display_name_ =~ s/\"//g;
+	
+	#redisplay logic
+	my @params = param_check();
+	my $Exp_Id = param_check('Exp_Id_for_Popup');
+	my $Redisplay_Band_Popup = param_check('Redisplay_Band_Popup');
+	my $Gel_No = param_check('Gel_No_for_Popup'); 
+	my $Lane_Order = param_check('Lane_Order_for_Popup');
+	my $Band_Mass = param_check('Band_Mass_for_Popup');
+	my $Band_Id_for_Popup = param_check('Band_Id_for_Popup');
+	my $Band_Id_for_File = param_check('Band_Id_for_File');
 	my $select1; #Western Blot
 	my $select2; #Mass Spec
 	my $select3; #Mass Spec
-		print DEVEL_OUT " value for Lane Order $Lane_Order\n";
-		#must save Lane Id for iterations
-		#param('Save_Lane_Order_for_Band_Processing', $Lane_Order);
-		my $test = param('Save_Lane_Order_for_Band_Processing');
-		print DEVEL_OUT "THE SAVED LANE IS $test\n";
+	#print DEVEL_OUT " value for Lane Order $Lane_Order\n";
+	#must save Lane Id for iterations
+	#param_check('Save_Lane_Order_for_Band_Processing', $Lane_Order);
+	my $test = param_check('Save_Lane_Order_for_Band_Processing');
+	#print DEVEL_OUT "THE SAVED LANE IS $test\n";
 	
 	my $display_band_popup;
 	my $display_mass_spect_input;
@@ -4066,45 +4729,59 @@ sub create_add_protein_to_band_html
 	my $display_current_band_data;
 	my $display_band_delete ='none';
 
-#must retrieve band_protein to get current information if it exists
+	#must retrieve band_protein to get current information if it exists
 	my @band_protein = Biochemists_Dream::Band_Protein -> search(Band_Id => $Band_Id_for_File);
+	my $band = Biochemists_Dream::Band -> retrieve($Band_Id_for_File);
 	my $Cur_Protein_ID;
-	my $Cur_Search_Engine;
-	my $Cur_Protein_ID_Method;
-	my $Cur_MS_File_Suffix;
-	my $Cur_Systematic_Name_For_Band;
+	my $Cur_Search_Engine="";
+	my $Cur_Protein_ID_Method="";
+	my $Cur_MS_File_Suffix="";
+	my $Cur_Systematic_Name_For_Band="";
 	my $Cur_MS_Results_File;
 	my $Display_Cur_MS_Search_Data;
-	foreach my $band_protein (@band_protein){
+	my $Cur_Verified=""; 
+	if(defined($band))
+	{
+		my $Cur_Verified = $band -> get("Used_for_Protein_ID");
+		if($Cur_Verified == 1) {$Cur_Verified="Yes";}
+		else {$Cur_Verified="No";}
+	}
+	
+	foreach my $band_protein (@band_protein)
+	{
 		#must get extension from band_protein (note - must clear that out also)
 		$Cur_Protein_ID = $band_protein -> get("Protein_ID");
 		$Cur_Search_Engine = $band_protein -> get("MS_Search_engine");
 		$Cur_Protein_ID_Method = $band_protein -> get("Protein_ID_Method");
 		$Cur_MS_File_Suffix = $band_protein -> get("MS_File_Suffix");
 	}
-	$Cur_Systematic_Name_For_Band = param('Cur_Systematic_Name_For_Band');
+		
+	$Cur_Systematic_Name_For_Band = param_check('Cur_Systematic_Name_For_Band');
 	my $experiment_dir = "/copurification/$g_user_id/Experiments";
 	my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.band.$Band_Id_for_File.ms";
 	$Cur_MS_Results_File = "$experiment_dir/$Exp_Id/$local_ms_fname.$Cur_MS_File_Suffix";
 
-	
-	if ($Redisplay_Band_Popup eq "Yes") {
-		print DEVEL_OUT "ARE WE REDISPLAYING??????????";
+	if (0) #$Redisplay_Band_Popup eq "Yes")
+	{
+		#print DEVEL_OUT "ARE WE REDISPLAYING??????????";
 		$display_band_popup = "";
 		my $check_for_ms = param ('Turn_On_MS_Input'); #this is to make sure the input fields remain turned on
-		my $ms_protein_id_method = lc(param('ms_protein_id_method')); 
-		if ($check_for_ms eq "Yes") {
+		my $ms_protein_id_method = lc(param_check('ms_protein_id_method')); 
+		if ($check_for_ms eq "Yes")
+		{
 			$display_mass_spect_input = "";
 #			print DEVEL_OUT "id method is $ms_protein_id_method";
 #			$select1 = ''; 		#Western Blot
 #			$select2 = 'selected'; 	#Mass Spec
-		} else {
+		}
+		else
+		{
 			$display_mass_spect_input = "none";
 #			print DEVEL_OUT "id method is $ms_protein_id_method";
 #			$select1 = 'selected'; 	#Western Blot
 #			$select2 = ''; 		#Mass Spec
 		}
- 		print DEVEL_OUT "\nid method is $ms_protein_id_method\n";
+		#print DEVEL_OUT "\nid method is $ms_protein_id_method\n";
 		if 	($ms_protein_id_method eq "mass spec") {
 			$select1 = ''; 			#Western Blot
 			$select2 = 'selected'; 		#Mass Spec
@@ -4119,16 +4796,17 @@ sub create_add_protein_to_band_html
 			$select3 = 'selected'; 		#Other
 		}
 			
-		
-		
-# for current data there is always a protein and protein id method
-# only turn on MS portion if it exists that is current protein id method is Mass Spec
-		if ($Cur_Protein_ID_Method) {
+		# for current data there is always a protein and protein id method
+		# only turn on MS portion if it exists that is current protein id method is Mass Spec
+		if ($Cur_Protein_ID_Method)
+		{
 			$display_current_band_data = ''; # display whole current panel
 			$display_band_delete = ''; #display delete button
 			if ($Cur_Search_Engine eq undef) {$Display_Cur_MS_Search_Data = 'none';} # do not display current MS portion
 			else {$Display_Cur_MS_Search_Data = '';} # display current MS portion
-		} else {
+		}
+		else
+		{
 			$display_current_band_data = "none";
 			$Display_Cur_MS_Search_Data = "none";
 			$display_band_delete ='none';
@@ -4138,13 +4816,15 @@ sub create_add_protein_to_band_html
 		$band_lane_order = $Lane_Order;
 		$band_mass_for_display = $Band_Mass;
 		$ms_protein_name = param ('ms_protein_name');
-		print DEVEL_OUT "\nprotein name  for display is $ms_protein_name\n";
+		#print DEVEL_OUT "\nprotein name  for display is $ms_protein_name\n";
 		$band_popup_error_message = param ('Band_Popup_Error_Message');
 		print qq!<input type="hidden" id="Lane_Order_for_Popup" name="Lane_Order_for_Popup" value="$Lane_Order">!;
 		print qq!<input type="hidden" id="Band_Mass_for_Popup" name="Band_Mass_for_Popup" value="$Band_Mass">!;
 		print qq!<input type="hidden" id="Band_Id_for_Popup" name="Band_Id_for_Popup" value="$Band_Id_for_Popup">!;
 		print qq!<input type="hidden" id="Band_Id_for_File" name="Band_Id_for_File" value="$Band_Id_for_File">!;
-	} else {
+	}
+	else
+	{
 		$display_band_popup = "none"; # changed from none 07/15/2016
 		$display_mass_spect_input = "none"; # changed from none 07/15/2016
 		$band_gel_id = "";
@@ -4158,15 +4838,15 @@ sub create_add_protein_to_band_html
 		print qq!<input type="hidden" id="Band_Id_for_Popup" name="Band_Mass_for_Popup" value="">!;
 		print qq!<input type="hidden" id="Band_Id_for_File" name="Band_Id_for_File" value="">!;
 	}
-		print DEVEL_OUT " value for Lane Order $Lane_Order\n";
-		#must save Lane Id for iterations
-		#param('Save_Lane_Order_for_Band_Processing', $Lane_Order);
-		  $test = param('Save_Lane_Order_for_Band_Processing');
-		print DEVEL_OUT "THE SAVED LANE IS $test\n";
+	#print DEVEL_OUT " value for Lane Order $Lane_Order\n";
+	#must save Lane Id for iterations
+	#param_check('Save_Lane_Order_for_Band_Processing', $Lane_Order);
+	$test = param_check('Save_Lane_Order_for_Band_Processing');
+	#print DEVEL_OUT "THE SAVED LANE IS $test\n";
 	
-#print qq!<div  id="Add MS Protein to Band" style="display: none">!;
-print qq!<div  id="Add MS Protein to Band" style="display: $display_band_popup">!;
-print qq!<h4 id='Band Popup Header'>For Gel <span id='GelIdforBand'>$band_gel_id</span>, Lane <span id='LaneOrderforBand'>$band_lane_order</span>, for Band Mass <span id='Band_Mass_for_Display'>$band_mass_for_display</span> kDa: </h4>!;
+	#print qq!<div  id="Add MS Protein to Band" style="display: none">!;
+	print qq!<div  id="Add MS Protein to Band" style="display: $display_band_popup">!;
+	print qq!<h4 id='Band Popup Header'>For Gel <span id='GelIdforBand'>$display_name_</span>, Lane <span id='LaneOrderforBand'>$band_lane_order</span>, for Band Mass <span id='Band_Mass_for_Display'>$band_mass_for_display</span> kDa: </h4>!;
 
 	print qq!<table id="Display Existing Band Info" style="width: 100%;margin-top: 10px;margin-left: 0px; border-style: solid;  display: $display_current_band_data;">!;
 	print qq!<tr>!;
@@ -4180,96 +4860,214 @@ print qq!<h4 id='Band Popup Header'>For Gel <span id='GelIdforBand'>$band_gel_id
 	print qq!  <td>Current protein id method: </td>!;
 	print qq!  <td><span id='cur_protein_id_method'>$Cur_Protein_ID_Method</span></td>!;
 	print qq!</tr>!;
+	
 	print qq!<tr id="cur ms spect engine display for band" style="display: $Display_Cur_MS_Search_Data">!;
 	print qq!  <td>Current MS Search Engine: </td>!;
 	print qq!  <td><span id='cur_ms_search_engine_for_band'>$Cur_Search_Engine</span></td>!;
 	print qq!</tr>!;
+	
 	print qq!<tr id="cur ms spect file display for band" style="display: $Display_Cur_MS_Search_Data">!;
 	print qq!  <td>Click to view current MS Search Results File: </td>!;
  	print qq!  <td><a  id='cur_local_ms_file_for_band' href="$Cur_MS_Results_File" target="_blank">MS Search Results File</a></td>!;
 	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!  <td>Was this particular band was used to identify protein? </td>!;
+ 	print qq!  <td><span id='cur_verified_on_this_gel'>$Cur_Verified</span></td>!;
+	print qq!</tr>!;
+	
 	print qq!</table>!;
 
-print qq!<table id="Band Input Panel" style="width: 100%;margin-top: 10px;margin-left: 0px;border-style: solid;">!;
-print qq!<tr>!;
-print qq!  <td>Enter/Update protein associated with this band: </td>!;
-print qq!  <td><input id="ms_protein_name" type="text" name="ms_protein_name" value=$ms_protein_name ></td>!; 
-print qq!  </td>!;
-print qq!</tr>!;
-print qq!<tr>!;
-
-print qq!<tr>!;
-print qq!  <td>Enter/Update the protein id method used this band: </td>!;
-print qq!  <td><select Id="ms_protein_id_method" name="ms_protein_id_method"   onchange="display_updates_for_band()">!;
-print qq! 		 <option Id="mass spec" value="mass spec" $select2>mass spec</option>!;
-print qq!  		 <option Id="Western Blot" value="Western Blot" $select1>western blot</option>!;
-print qq!  		 <option value="Other" $select3>other</option>!;
-print qq!	   </select>!;
-print qq!  </td>!;
+	print qq!<table id="Band Input Panel" style="width: 100%;margin-top: 10px;margin-left: 0px;border-style: solid;">!;
+	print qq!<tr>!;
+	print qq!<td>Protein associated with this band: </td>!;
+	print qq!<td><input id="ms_protein_name" type="text" name="ms_protein_name" value=$ms_protein_name ></td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!  <td>Protein id method used for this band: </td>!;
+	print qq!  <td><select Id="ms_protein_id_method" name="ms_protein_id_method"   onchange="display_updates_for_band()">!;
+	print qq! 		 <option Id="mass spec" value="mass spec" $select2>mass spec</option>!;
+	print qq!  		 <option Id="Western Blot" value="Western Blot" $select1>western blot</option>!;
+	print qq!  		 <option value="Other" $select3>other</option>!;
+	print qq!	   </select>!;
+	print qq!  </td>!;
+	print qq!</tr>!;
  
-#these two inputs are displayed only when Mass Spec for Protein Id Method is chosen
-print qq!<tr id="ms spect engine display for band" style="display: $display_mass_spect_input">!;
-print qq!  <td>Enter/Update MS Search Engine used: </td>!;
-print qq!  <td><select id="ms_search_engine_for_band" name="ms_search_engine_for_band">!;
-print qq! 		 <option id="Xtandem" value="Xtandem">Xtandem</option>!;
-print qq!  		 <option value="SEQUEST">SEQUEST</option>!;
-print qq!  		 <option value="Mascot">Mascot</option>!;
-print qq!  		 <option value="MSGFplus">MSGFplus</option>!;
-print qq!	   </select>!;
-print qq!  </td>!;
-print qq!</tr>!;
-
-print qq!<tr id="ms spect file display for band" style="display: $display_mass_spect_input">!;
-print qq!  <td>Upload/Overlay MS Search Results File: </td>!;
-print qq!  <td><input type="file" name="mass_spect_file_for_band" id="mass_spect_file_for_band"></td>!; 
-print qq!  </td>!;
-print qq!</tr>!;
-#only when needed
-
-print qq!<tr>!;
-print qq!  <td>!;
-#added lane order for testing error redisplay bug must retest
-print qq!    <input type="submit" id="addMassSpectButton2" name="submit" value="Add MS Data" onclick="addMassSpectData('band','Update');">!;
-print qq!    <input type="submit" id="delMassSpectButton2" name="submit" value="Del MS Data" onclick="addMassSpectData('band','Delete');" style="display: $display_band_delete">!;
-print qq!    <input type="button" value="Close" onclick="hide_popup_for_band('Add MS Protein to Band')">!;
-print qq!  </td>!;
-print qq!</tr>!;
-print qq!<tr>!;
-print qq!  <td>!;
-	print qq!<span id='error_message_for_band_popup' style="display: $display_band_popup">$band_popup_error_message</span>!;
-print qq!  </td>!;
-print qq!</tr>!;
-
-print qq!</table>!;
-
-print qq!</div>!;
+	#these two inputs are displayed only when Mass Spec for Protein Id Method is chosen
+	print qq!<tr id="ms spect engine display for band" style="display: $display_mass_spect_input">!;
+	print qq!<td>MS Search Engine used: </td>!;
+	print qq!  <td><select id="ms_search_engine_for_band" name="ms_search_engine_for_band">!;
+	print qq! 		 <option id="Xtandem" value="Xtandem">Xtandem</option>!;
+	print qq!  		 <option value="SEQUEST">SEQUEST</option>!;
+	print qq!  		 <option value="Mascot">Mascot</option>!;
+	print qq!  		 <option value="MSGFplus">MSGFplus</option>!;
+	print qq!  		 <option value="Andromeda">Andromeda</option>!;
+	print qq!	   </select>!;
+	print qq!  </td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr id="ms spect file display for band" style="display: $display_mass_spect_input">!;
+	print qq!<td>Upload MS Search Results File: </td>!;
+	print qq!<td><input type="file" name="mass_spect_file_for_band" id="mass_spect_file_for_band"></td>!;
+	#print qq!<font style="font-size: 90%"><span id='info_message_for_band_file' >(leave blank to keep current file)</span></font></td>!;
+	print qq!</tr>!;
+	#only when needed
+	
+	print qq!<tr>!;
+	print qq!<td>Was this particular band used to identify the protein? </td>!;
+	print qq!<td><input type="radio" id="verified_on_this_gel_yes" name="verified_on_this_gel" value="Yes" checked>Yes <input type="radio" id="verified_on_this_gel_no" name="verified_on_this_gel" value="No">No <b><a href="../copurification-html/HowTo.html#AddDataToBand" target="_blank">?</a></b></td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!<td><input type="checkbox" id="propogate_label" name="propogate_label" value="propogate_label"> Propogate this label across lanes</td>!;
+	print qq!<td>&nbsp;</td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!<td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Mass range for band: +/- <input id="propogate_label_mass_range" type="text" name="propogate_label_mass_range" value=0.5 size=5> kDa</td>!;
+	print qq!<td>&nbsp;</td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!  <td>!;
+	#added lane order for testing error redisplay bug must retest
+	print qq!    <input type="submit" id="addMassSpectButton2" name="submit" value="Save MS Data" onclick="addMassSpectData('band','Update');">!;
+	print qq!    <input type="submit" id="delMassSpectButton2" name="submit" value="Del MS Data" onclick="addMassSpectData('band','Delete');" style="display: $display_band_delete">!;
+	print qq!    <input type="button" value="Close" onclick="hide_popup_for_band('Add MS Protein to Band')">!;
+	print qq!  </td>!;
+	print qq!<td>&nbsp;</td>!;
+	print qq!</tr>!;
+	
+	print qq!<tr>!;
+	print qq!  <td>!;
+		print qq!<span id='error_message_for_band_popup' style="display: $display_band_popup;color: red">$band_popup_error_message</span>!;
+	print qq!  </td>!;
+	print qq!<td>&nbsp;</td>!;
+	print qq!</tr>!;
+	
+	print qq!</table>!;
+	
+	print qq!</div>!;
 }
 
-#create_imagemap_html(\@bands, $lane_id, $units, $lane_order);
-#create_imagemap_html(\@bands, $lane_id, $units, $lane_order, $gel_num, $exp_id, $Shared_Project);
+
+#create_imagemap_html_for_search(\@bands, $lane_id, $units, $lane_order, $gel_num, $exp_id, $user_id);
+sub create_imagemap_html_for_search
+{
+	my $bands_ref = shift;
+	my $lane_id = shift;
+	my $units = shift;
+	my $lane_order = shift;
+	my $gel_num=shift;
+	my $exp_id = shift;
+	my $user_id=shift;
+	
+	my $ret_string = qq!<map name="$lane_id">!;
+	
+	my ($data_source, $db_name, $user, $password) = getConfig();
+	my $dbh = DBI->connect($data_source, $user, $password, { RaiseError => 1, AutoCommit => 0 });
+	my $sql = 'SELECT Protein_Id, MS_Search_Engine, Protein_Id_Method, MS_File_Suffix FROM band_protein WHERE Band_Id = ?';
+ 	my $sth = $dbh->prepare($sql);
+		
+	foreach (@{$bands_ref})
+	{
+		my $band_id = $_ -> get ('Id'); 
+		my $mass = $_ -> get('Mass') || "";
+		my $amount = $_ -> get('Quantity') || "";
+		my $st = $_ -> get('Start_Position');
+		my $end = $_ -> get('End_Position');
+		
+		$sth->execute($band_id) or die "retrieve band error code: ", $DBI::errstr;
+		my $row_count = $sth->rows;
+		my $protein_count=0;
+		my $common_name_list = ""; my $search_engine=''; my $id_method=''; my $file_suffix='';
+		if ($row_count > 0)
+		{ # more than one protein can be added, but the associated Protein ID method etc information is the same 
+			while ( my @row = $sth->fetchrow_array )
+			{
+				my $protein_id;
+				if ($protein_count == 0)
+				{ ($protein_id, $search_engine, $id_method, $file_suffix) = @row; }
+				else{ $protein_id = $row[0]; }
+                
+				my $protein_db_entry = Biochemists_Dream::Protein_DB_Entry -> retrieve($protein_id);
+				if ($protein_count == 0) { $common_name_list .= $protein_db_entry -> get("Common_Name"); }
+				else { $common_name_list .= ("," . $protein_db_entry -> get("Common_Name")); }
+				$protein_count++;
+			}
+		}
+		
+		my $title;
+		if($amount) { $title = "Mass: $mass kDa, Quantity: $amount $units"; }
+		else { $title = "Mass: $mass kDa"; }
+		
+		if ($protein_count > 0)
+		{
+            $title =  $title . ", Common Name: $common_name_list";
+			if ($id_method) { $title = $title . ", Id Method: $id_method"; }
+			if ($search_engine) { $title = $title . ", Search Engine: $search_engine"; }
+        }
+		
+		if($st && $end)
+ 		{
+			$ret_string .= qq!<area shape="rect" coords="0,$st,25,$end" !;
 			
-sub create_imagemap_html
+			if ($protein_count > 0 && $file_suffix)
+			{
+				my $experiment_dir = "http://$HOSTNAME/copurification/$user_id/Experiments";						
+				my $local_ms_fname = "gel$gel_num.lane.$lane_order.band.$band_id.ms";	
+				my $local_fname = "$experiment_dir/$exp_id/$local_ms_fname.$file_suffix";
+		
+				if ((lc $file_suffix) eq 'xml')
+				{
+					$ret_string .= qq!href="$local_fname" download="xml_file" title="$title" style="cursor:crosshair;" />!; 	
+				}
+				else
+				{
+					$ret_string .= qq!href="$local_fname" target="_blank" title="$title" style="cursor:crosshair;" />!; 	
+				}
+				     
+			}
+			else
+			{
+				$ret_string .= qq!title="$title" style="cursor:crosshair;" />!; 	
+			}
+		}
+	}
+	
+	$ret_string .= qq!</map>!;
+
+	$sth->finish();
+	$dbh->disconnect();
+			
+	return $ret_string;
+	
+}
+
+#create_imagemap_html_for_gel(\@bands, $lane_id, $units, $lane_order, $gel_num, $display_name_, $exp_id, $Shared_Project, $user_id);
+sub create_imagemap_html_for_gel
 {
 	my $bands_ref = shift;
 	my $lane_id = shift;
 	my $units = shift;
 	my $lane_order = shift;
 	
-	#params for adding MS data to band
 	my $gel_num = shift;
+	my $gel_name = shift;
 	my $exp_id = shift;
 	my $Shared_Project = shift;
-	
-	my $ret_string = "";
-	$ret_string .= qq!<map name="$lane_id">!;
+	my $user_id = shift;
+    
+	my $ret_string = qq!<map name="$lane_id">!;
 	my $Id_Method_for_Rollover;
 	my $Search_Engine_for_Rollover;
 	my $Protein_Id_for_Rollover;
 	my $Systematic_Name_for_Rollover;
+	my $Common_Name_for_Rollover;
 	my $MS_File_Suffix;
 	my $has_band_been_assigned_protein = 0;
 	
-	###ADDED SK 6_30_16 - for retreiveing protein for each band
 	my ($data_source, $db_name, $user, $password) = getConfig();
 	my $dbh = DBI->connect($data_source, $user, $password, { RaiseError => 1, AutoCommit => 0 });
 	my $sql = 'SELECT Protein_Id, MS_Search_Engine, Protein_Id_Method, MS_File_Suffix FROM band_protein WHERE Band_Id = ?';
@@ -4282,75 +5080,104 @@ sub create_imagemap_html
 		my $amount = $_ -> get('Quantity') || "";
 		my $st = $_ -> get('Start_Position');
 		my $end = $_ -> get('End_Position');
-		
+		my $Verified_on_Gel = $_ -> get('Used_for_Protein_ID');
+		if($Verified_on_Gel == 1){$Verified_on_Gel="Yes";}
+		else{$Verified_on_Gel="No";}
 		
 		$Systematic_Name_for_Rollover = "";
+		$Common_Name_for_Rollover = "";
 		$Id_Method_for_Rollover = "";
 		$Search_Engine_for_Rollover = "";
 		$Protein_Id_for_Rollover = "";
 		$MS_File_Suffix = "";
 		
-		#band id seems to be getting to this point
-		###my $ret = retrieve_band_protein ($Band_Id_for_Popup, $Id_Method_for_Rollover, $Search_Engine_for_Rollover, $Protein_Id_for_Rollover, $MS_File_Suffix);
-		
-		###ADDED SK 6_30_16
 		my $ret;
 		$sth->execute($Band_Id_for_Popup) or die "retrieve band error code: ", $DBI::errstr;
  		my $row_count = $sth->rows;
-		if ($row_count > 0) {
-			my @row = $sth->fetchrow_array();
-			($Protein_Id_for_Rollover, $Search_Engine_for_Rollover, $Id_Method_for_Rollover, $MS_File_Suffix) = @row;
-			$ret = 1;
-		}
-		else { $ret = 0; }
-		
-		if($ret)
+		my $cur_Protein_Id_for_Rollover;
+		my @Protein_Id_for_Rollover_List=();
+		if ($row_count > 0)
 		{
-			my @protein_db_entry = Biochemists_Dream::Protein_DB_Entry -> retrieve($Protein_Id_for_Rollover);
-			foreach my $protein_db_entry (@protein_db_entry){
-#				$Systematic_Name_for_Rollover = $protein_db_entry -> get("Systematic_Name");
-#	change name internally later - jusy want tomake sure John likes it
-				$Systematic_Name_for_Rollover = $protein_db_entry -> get("Common_Name");
+			$ret = 1;
+			while ( my @row = $sth->fetchrow_array )
+			{
+				($cur_Protein_Id_for_Rollover, $Search_Engine_for_Rollover, $Id_Method_for_Rollover, $MS_File_Suffix) = @row;
+				push @Protein_Id_for_Rollover_List, $cur_Protein_Id_for_Rollover;
+			}
+			
+			my $row_count=0;
+			for my $cur_id (@Protein_Id_for_Rollover_List)
+			{
+				my $protein_db_entry = Biochemists_Dream::Protein_DB_Entry -> retrieve($cur_id);
+				if ($row_count == 0)
+				{
+                    $Systematic_Name_for_Rollover .= $protein_db_entry -> get("Systematic_Name");
+					$Common_Name_for_Rollover .= $protein_db_entry -> get("Common_Name");
+                }
+				else
+				{
+					$Systematic_Name_for_Rollover .= ("," . $protein_db_entry -> get("Systematic_Name"));
+					$Common_Name_for_Rollover .= ("," . $protein_db_entry -> get("Common_Name"));
+				}
+				$row_count++;
 			}
 		}
+		else
+		{#if no proteins, this should come out as 0 from DB, but in that case we want by default the radio button to be set to Yes, so change it
+			$ret = 0;
+			$Verified_on_Gel="Yes";
+		}
+		
 		my $show_current_data = 0; # 1 means show the data
 		my $title;
 		if($amount) { $title = "Mass: $mass kDa, Quantity: $amount $units"; }
 		else { $title = "Mass: $mass kDa"; }
 		
-		if ($Systematic_Name_for_Rollover) {
-# 		 	$title =  $title . ", Protein Systematic Name: $Systematic_Name_for_Rollover";
-	 		$title =  $title . ", Common Name: $Systematic_Name_for_Rollover";
+		if ($Common_Name_for_Rollover)
+		{
+	 		$title =  $title . ", Common Name: $Common_Name_for_Rollover";
 			$show_current_data = 1;
-		} else {$Systematic_Name_for_Rollover = " ";}
-		if ($Id_Method_for_Rollover) {
+		} else {$Common_Name_for_Rollover = " ";}
+		if ($Id_Method_for_Rollover)
+		{
 			$title = $title . ", Id Method: $Id_Method_for_Rollover";
 			$show_current_data = 1;
 		} else {$Id_Method_for_Rollover = " ";}
-		if ($Search_Engine_for_Rollover) {
+		if ($Search_Engine_for_Rollover)
+		{
 	 		$title = $title . ", Search Engine: $Search_Engine_for_Rollover";
 			$show_current_data = 1;
 		} else {$Search_Engine_for_Rollover = " ";}
-		if ($Protein_Id_for_Rollover) {
+		if ($Protein_Id_for_Rollover)
+		{
 	 		#$title = $title . ", Protein Id: $Protein_Id_for_Rollover";
 			$show_current_data = 1;
 		} else {$Protein_Id_for_Rollover = 0;}
+		
+		if($Verified_on_Gel eq "No" and $ret)
+		{#when it's set to No for verified, and protein id exists for band, put a *
+			$title = $title . " *"
+		}
 		#this code creates a list based on whether a lane has protein data assigned to at least one band
-		#if the sum is create then 0 will mean no bands and NOT 0 at least one band has been assigne3d a protein
+		#if the sum is create then 0 will mean no bands and NOT 0 at least one band has been assigned a protein
 		$has_band_been_assigned_protein += $show_current_data;
 		
-		my $experiment_dir = "/copurification/$g_user_id/Experiments";
+		my $experiment_dir = "/copurification/$user_id/Experiments";
 		my $local_ms_fname = "gel$gel_num.lane.$lane_order.band.$Band_Id_for_Popup.ms";
 		my $local_fname = "$experiment_dir/$exp_id/$local_ms_fname.$MS_File_Suffix";
 		#my $Shared_Project = test_for_shared_project($exp_id, $g_user_id);
 
 		#!to do! either set a min lane width and use a constant...or get the width of each image in pixels and use it here
 		if($st && $end)
- 			#{ $ret_string .= qq!<area shape="rect" coords="0,$st,25,$end" href="javascript:void(0);" title="$title" style="cursor:crosshair;" />!; }
-                        #updated this line for Mass Spec Update 04-07-2016
-    			#it will make the add protein to lane appear as a pop up  
-			{$ret_string .= qq!<area shape="rect" coords="0,$st,25,$end" href="#Add MS Protein to Band" onclick="show_popup_for_band('Add MS Protein to Band' ,$gel_num, $lane_order, $Band_Id_for_Popup, $mass, $Protein_Id_for_Rollover, $show_current_data, &quot;$Id_Method_for_Rollover&quot;, &quot;$Search_Engine_for_Rollover&quot;, &quot;$Systematic_Name_for_Rollover&quot;, &quot;$local_fname&quot;,$Shared_Project)" title="$title" style="cursor:crosshair;" />!;}
+ 		{#$Verified_on_Gel
+			my $xml_file = 0;
+			if ((lc $MS_File_Suffix) eq "xml") { $xml_file=1; }
+            
+			$ret_string .= qq!<area shape="rect" coords="0,$st,25,$end" href="#Add MS Protein to Band" !;
+			$ret_string .= qq!onclick="show_popup_for_band('Add MS Protein to Band',$gel_num, \'$gel_name\', $lane_order, $Band_Id_for_Popup, $mass, $Protein_Id_for_Rollover, $show_current_data, &quot;$Id_Method_for_Rollover&quot;,&quot;$Search_Engine_for_Rollover&quot;, &quot;$Systematic_Name_for_Rollover&quot;, &quot;$Common_Name_for_Rollover&quot;, &quot;$local_fname&quot;, $Shared_Project,\'$Verified_on_Gel\',$xml_file)" title="$title" style="cursor:crosshair;" />!;
+		}
 	}
+	
 	$_[6] = $has_band_been_assigned_protein;
 	param('switch_color', $has_band_been_assigned_protein);
 	$ret_string .= qq!</map>!;
@@ -4365,6 +5192,7 @@ sub display_experiment_page
 {
 	my $id = shift;
 	my $edit = shift;
+	my $err_str = shift;
 	my $exp = Biochemists_Dream::Experiment -> retrieve($id);
 	my $project = $exp -> Project_Id;
 	my $cur_user_id = $project -> get("User_Id");
@@ -4379,8 +5207,12 @@ sub display_experiment_page
 	#print '<div id="dialog" class="popup_dialog"><p><img src="/cdi-html/spinner.gif"/> Submitting Experiment...  </p></div>';
 	print hidden('experiment_id', $id);
 	print hidden('current_species', $cur_species);
-
-	if($cur_user_id == $g_user_id && $edit)
+	if ($cur_user_id != $g_user_id)
+	{
+		print qq!<input type="hidden" id="shared_project" name="shared_project" value=1 />!;
+    }
+    
+	if($edit) #$cur_user_id == $g_user_id && $edit) # John wants edit privileges to shared Exps
 	{
 		#get contents for species drop down box
 		my @species = Biochemists_Dream::Species -> retrieve_all;
@@ -4390,21 +5222,10 @@ sub display_experiment_page
 		#get contents for procedure drop down box
 		#load all existing procedure and gel files for the user
 		
-    
-		#my @proc_files = <"$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/*.txt">;
-		my @proc_files = get_files("$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures", '');
-		#for(my $i = 0; $i <= $#proc_files; $i++)
-		#{
-		#	$proc_files[$i] =~ s/.+([^\\\/]+\.txt$)/$1/; #strip the directorys
-		#}
+		my @proc_files = get_files("$BASE_DIR/$DATA_DIR/$cur_user_id/Experiment_Procedures", '');
 		unshift(@proc_files, '(none selected)');
 		
-		#my @gel_files = <"$BASE_DIR/$DATA_DIR/$g_user_id/Gel_Details/*.txt">;
-		my @gel_files = get_files("$BASE_DIR/$DATA_DIR/$g_user_id/Gel_Details", '');
-		#for(my $i = 0; $i <= $#gel_files; $i++)
-		#{
-		#	$gel_files[$i] =~ s/.+([^\\\/]+\.txt$)/$1/; #strip the directorys
-		#}
+		my @gel_files = get_files("$BASE_DIR/$DATA_DIR/$cur_user_id/Gel_Details", '');
 		unshift(@gel_files, '(none selected)');
 
 		print h2("Edit Experiment:"),
@@ -4454,15 +5275,20 @@ sub display_experiment_page
 		{ print "<p>Gel Details File: $gel_file</p>"; }
 		else { print qq!<p>Gel Details File: <a href="/copurification/$cur_user_id/Gel_Details/$gel_file" target="blank">$gel_file</a></p>!; }
 		
-		if($cur_user_id == $g_user_id)
+		if(1) #$cur_user_id == $g_user_id)
 		{ print submit('submit', 'Edit'); }
 		
 		print hidden('page_type', 'experiment');
 	}
 
 	print hr();
+	
+	if (defined($err_str) && $err_str ne "") {
+        print qq!<p style="color:red">$err_str</p>!;
+    }
+    
 
-	display_experiment_results($id, $exp);
+	display_experiment_results($id, $exp, '');
 
 	display_footer();
 }
@@ -4496,6 +5322,7 @@ sub display_experiment_results
 	#first, check if results are ready yet - check for 'DONE' at end of log file, also display any errors there
 	my $exp_id = shift;
 	my $exp_obj = shift;
+	my $norm_img_str = shift;
 	my $exp_user_id = $exp_obj -> Project_Id -> User_Id;
 	my $exp_dir = "$BASE_DIR/$DATA_DIR/$exp_user_id/Experiments/$exp_id";
 	my $results_ready = 0;
@@ -4505,16 +5332,18 @@ sub display_experiment_results
 	{
 		while(<IN>)
 		{
+			s/\r[\n]*/\n/gm;
 			chomp();
 			if($_ eq "DONE")
 			{
 				$results_ready = 1;
 				last;
 			}
-			else { push @errors, $_; }
+			else { push @errors, $_, $_ eq "DONE"; }
 		}
 	}
-
+	
+	print qq!<div id="exp_results_table">!;
 	if($results_ready)
 	{
 		if($#errors >= 0)
@@ -4530,6 +5359,7 @@ sub display_experiment_results
 		#Make Public button disabled -----
 		#foreach (@gels) { if(!($_ -> get('Public'))) { $need_button = 1; } }
 
+		
 		print br();
 		print '<table><tr><td>';
 		if($need_button && $exp_user_id == $g_user_id) #-disabled=>'true'
@@ -4538,15 +5368,53 @@ sub display_experiment_results
 		
 		print qq!</td><td><a href="../copurification-cgi/copurification.pl?submit=LaneGrouping&experiment_id=$exp_id" target="top">View Lane Clustering</a>&nbsp;&nbsp;&nbsp;|&nbsp; !;
 		print '</td><td><div id="slider" style="width:100px"></div></td></tr></table>';
-		print '<script>$( "#slider" ).slider(); $( ".selector" ).slider({ min: 0 }); $( "#slider" ).slider({ max: 2 }); $( "#slider" ).on( "slidechange", function( event, ui ) { change_lanes(); } ); </script>';
+		
+		if (-e "$exp_dir/gel1-nnn.txt")
+		{
+            print '<script>$( "#slider" ).slider({ min: 0, max: 3 }); $( "#slider" ).on( "slidechange", function( event, ui ) { change_lanes(1); } ); </script>';
+        }
+		else
+		{
+			print '<script>$( "#slider" ).slider({ min: 0, max: 2 }); $( "#slider" ).on( "slidechange", function( event, ui ) { change_lanes(1); } ); </script>';
+		}
+        
+		
+		
 		#print br();
 		
 		#display the gel data
+		print qq!<input type="hidden" id="Gel_No_for_Popup" name="Gel_No_for_Popup" value="0">!;
+		print qq!<input type="hidden" id="Gel_Id_for_Popup" name="Gel_Id_for_Popup" value="0">!;
+		
+		##
+		print qq!<input type="hidden" id="Exp_Id_for_Popup" name="Exp_Id_for_Popup" value="$exp_id">!;	
+		#print qq!<input type="hidden" id="Gel_No_for_Popup" name="Gel_No_for_Popup" value="$gel_num">!;
+		#print qq!<input type="hidden" id="Gel_Id_for_Popup" name="Gel_Id_for_Popup" value="$gel_id">!;
+		#print qq!<input type="hidden" id="Lane_Order_for_Popup" name="Lane_Order_for_Popup" value="">!; moved into subroutine was clearing out the data
+		#print qq!<input type="hidden" id="Band_Id_for_Popup" name="Band_Id_for_Popup" value="">!;
+		#print qq!<input type="hidden" id="Band_Id_for_File" name="Band_Id_for_File" value="">!;
+		print qq!<input type="hidden" id="band_or_lane" name="band_or_lane" value="lane">!;
+		print qq!<input type="hidden" id="update_or_delete" name="update_or_delete" value="">!;
+		print qq!<input type="hidden" id="Protein_Id_for_Rollover" name="Protein_Id_for_Rollover" value="">!;
+		
+		print qq!<input type="hidden" id="Redisplay_Lane_Popup" name="Redisplay_Lane_Popup" value="No">!;
+		print qq!<input type="hidden" id="Redisplay_Current_Lane_Data" name="Redisplay_Current_Lane_Data" value="No">!;
+		print qq!<input type="hidden" id="Redisplay_Band_Popup" name="Redisplay_Band_Popup" value="No">!;
+		print qq!<input type="hidden" id="Cur_Systematic_Name_For_Band" name="Cur_Systematic_Name_For_Band">!;
+		print qq!<input type="hidden" id="Save_Lane_Order_for_Band_Processing" name="Save_Lane_Order_for_Band_Processing">!;
+		##
+	
+		create_ms_search_engine_html ("");
+		create_add_protein_to_band_html ();
+		
+		
+	
 		foreach my $gel (@gels)
 		{
 			print br();
-			display_gel_details($gel, $exp_user_id);
+			display_gel_details($gel, $exp_user_id, $norm_img_str);
 		}
+		
 	}
 	else
 	{
@@ -4557,6 +5425,8 @@ sub display_experiment_results
 			foreach (@errors) { print p($_); }
 		}
 	}
+	print qq!</div>!;
+	
 }
 
 sub display_project_tree
@@ -4689,27 +5559,19 @@ sub display_add_project
 sub display_add_experiment
 {
 	my $parent_name = shift;
+	my $project_user_id = shift;
 	
 	#get the species choices from the species table of db
 	my @species = Biochemists_Dream::Species -> retrieve_all;
 	my @species_names;
 	foreach (@species) { push @species_names, $_ -> get('Name'); }
 
-	#load all existing procedure and gel files for the user
-	#my @proc_files = <"$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures/*.txt">;
-	my @proc_files = get_files("$BASE_DIR/$DATA_DIR/$g_user_id/Experiment_Procedures", '');
-	#for(my $i = 0; $i <= $#proc_files; $i++)
-	#{
-	#	$proc_files[$i] =~ s/.+([^\\\/]+\.txt$)/$1/; #strip the directorys
-	#}
+	#load all existing procedure and gel files for the project owner
+	my @proc_files = get_files("$BASE_DIR/$DATA_DIR/$project_user_id/Experiment_Procedures", '');
 	unshift(@proc_files, '(none selected)');
 	
-	#my @gel_files = <"$BASE_DIR/$DATA_DIR/$g_user_id/Gel_Details/*.txt">;
-	my @gel_files = get_files("$BASE_DIR/$DATA_DIR/$g_user_id/Gel_Details", '');
-	#for(my $i = 0; $i <= $#gel_files; $i++)
-	#{
-	#	$gel_files[$i] =~ s/.+([^\\\/]+\.txt$)/$1/; #strip the directorys
-	#}
+	my @gel_files = get_files("$BASE_DIR/$DATA_DIR/$project_user_id/Gel_Details", '');
+
 	unshift(@gel_files, '(none selected)');
 
 	print hr(),
@@ -4829,162 +5691,6 @@ sub upload_file
 
 	$_[3] = $extension;
 	return "";
-}
-
-sub process_experiment_gels
-{#fork and exec, don't wait for child, it will take too long
-	my $exp_id = shift;
-	my $exp_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$exp_id"; #the dir will be named w/ the primary key id
-
-	#create background process to run the gel processing...
-	# !to do ! check that this was successful, or return error msg!
-	my $proc1 = Proc::Background->new("perl.exe", "process_experiment_gels.pl", "$exp_id", "$exp_dir");
-	
-	#process_experiment_gels
-	#my $retval = system(qq!"perl.exe" "process_experiment_gels.pl" "$exp_id" "$exp_dir"!);
-
-	return "";
-
-}
-
-sub load_experiment_data_file
-{#returns error string if there's an error.  reads all data in and adds information to database as an experiment with gels
-	my $experiment_id = shift;
-	my $exp_species = shift;
-	my $gel_fname_map = shift; 
-	my $gel_fname_ext_map = shift; 
-	
-	if($DEVELOPER_VERSION) { print DEVEL_OUT "Reading Experiment data file '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$experiment_id/$EXP_DATA_FILE_NAME_ROOT.txt'\n"; }
-	
-	$Biochemists_Dream::GelDataFileReader::data_file_name = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$experiment_id/$EXP_DATA_FILE_NAME_ROOT.txt";
-	$Biochemists_Dream::GelDataFileReader::species = $exp_species;
-	$Biochemists_Dream::GelDataFileReader::file_extension_map = $gel_fname_ext_map;
-	
-	if(!Biochemists_Dream::GelDataFileReader::read_file())
-	{
-		return format_error_message(\@Biochemists_Dream::GelDataFileReader::read_error_message);
-	}
-	
-	#success! reading in file - all is valid!
-	if($DEVELOPER_VERSION) { print DEVEL_OUT "GelDataFileReader::read_file() did not return error message: '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$experiment_id/$EXP_DATA_FILE_NAME_ROOT.txt'\n"; }
-	
-	#navigate through gels, lanes...
-	my %proteins_added;
-	while(read_gel())
-	{
-		my $fname = get_gel_file_name();
-		my $fname_orig = gel_gel_file_name_orig(); #not made to lower case
-		if(!defined ${$gel_fname_map}{$fname})
-		{
-			#error this file name from the data file doesn't correspond to an uploaded image file...
-			#this should not happen since its already checked in the GelDataFileReader package
-			next;
-		}
-		
-		my $new_gel = Biochemists_Dream::Gel -> insert({Experiment_Id => $experiment_id, File_Id => ${$gel_fname_map}{$fname}, Num_Lanes => get_num_lanes(),
-								Display_Name => $fname_orig, File_Type => ${$gel_fname_ext_map}{$fname}});
-		my $gel_id = $new_gel -> get("Id");
-		
-		while(read_lane())
-		{
-			#create new lane:
-			my $new_lane =  Biochemists_Dream::Lane -> insert({Gel_Id => $gel_id, Lane_Order => get_lane_index()});
-			
-			#next, check if its calibration lane:
-			
-			my $ladder_ref = get_mass_ladder();
-			if(@{$ladder_ref})
-			{#create ladder in db
-				my $new_ladder = Biochemists_Dream::Ladder -> insert({Name => 'ladder'});
-				my $ladder_id = $new_ladder -> get("Id");
-				foreach (@{$ladder_ref})
-				{
-					Biochemists_Dream::Ladder_Mass -> insert({Ladder_Id => $ladder_id, Mass => $_});
-				}
-				
-				#add ladder to Lane
-				$new_lane -> set(Mol_Mass_Cal_Lane => 1, Ladder_Id => $ladder_id);
-				$new_lane -> update();
-			}
-			
-			my $qty_std_data_ref = get_qty_std_data();
-			
-			if(@{$qty_std_data_ref})
-			{#add qty std calibration info. to lane
-				$new_lane -> set(Quantity_Std_Cal_Lane => 1, Quantity_Std_Name => ${$qty_std_data_ref}[0], Quantity_Std_Amount => ${$qty_std_data_ref}[1], Quantity_Std_Units => ${$qty_std_data_ref}[2], Quantity_Std_Size => ${$qty_std_data_ref}[3]);
-				$new_lane -> update();
-			}
-			
-			if(@{$ladder_ref} || @{$qty_std_data_ref}) { next; } #if its a cal. lane, the rest of the lane details are not used.
-			
-			#not a cal lane, retreive rest of lane details and insert lane
-			
-			#get protein info: either protein id (if already in db) or protein name (if need to add it)
-			my $p_id; 
-			if(!($p_id = get_protein_id_in_db()))
-			{#must add protein -  but check if it was already added by this statement for an earlier lane and if so don't add it...
-				my $sys_name = get_protein_sys_name();
-				if(!defined $proteins_added{$sys_name})
-				{
-					my $new_protein = Biochemists_Dream::Protein_DB_Entry -> insert({Protein_DB_Id => get_protein_db_id_in_db(), Systematic_Name => $sys_name,
-												 Common_Name => get_protein_common_name()});
-					$proteins_added{$sys_name} = $new_protein -> get("Id");
-				}
-				$p_id = $proteins_added{$sys_name};
-			}
-			
-			#Protein ID + Ph, Over_Expressed, Tag_Type, Tag_Location, Antibody, Other_Capture, Notes, Single Reagent Flag
-			$new_lane -> set(Captured_Protein_Id => $p_id, Ph => get_ph(), Tag_Location => get_tag_location(), Over_Expressed => get_over_expressed(),
-					 Tag_Type => get_tag_type(), Antibody => get_antibody(), Other_capture => get_other_capture(), Notes => get_notes(), Single_Reagent_Flag => get_single_reagent_flag())
-			;
-			$new_lane -> update();
-			my $lane_id = $new_lane -> get('Id');
-			
-			#add the Reagents
-			my $cur_reagents_array_ref;
-			
-			$cur_reagents_array_ref = get_detergents();
-			foreach my $reag (@{$cur_reagents_array_ref})
-			{
-				Biochemists_Dream::Lane_Reagents -> insert({Lane_Id => $lane_id, Reagent_Id => ${$reag}[0], Amount => ${$reag}[1], Amount_Units => ${$reag}[2]});
-				
-			}
-			
-			$cur_reagents_array_ref = get_salts();
-			foreach my $reag (@{$cur_reagents_array_ref})
-			{
-				Biochemists_Dream::Lane_Reagents -> insert({Lane_Id => $lane_id, Reagent_Id => ${$reag}[0], Amount => ${$reag}[1], Amount_Units => ${$reag}[2]});
-			}
-			
-			$cur_reagents_array_ref = get_buffers();
-			foreach my $reag (@{$cur_reagents_array_ref})
-			{
-				Biochemists_Dream::Lane_Reagents -> insert({Lane_Id => $lane_id, Reagent_Id => ${$reag}[0], Amount => ${$reag}[1], Amount_Units => ${$reag}[2]});
-			}
-			
-			$cur_reagents_array_ref = get_other_reagents();
-			foreach my $reag (@{$cur_reagents_array_ref})
-			{
-				Biochemists_Dream::Lane_Reagents -> insert({Lane_Id => $lane_id, Reagent_Id => ${$reag}[0], Amount => ${$reag}[1], Amount_Units => ${$reag}[2]});
-			}
-		}
-	}
-	if($DEVELOPER_VERSION) { print DEVEL_OUT "Success!  Gels and Lanes created corresponding to Experiment data file '$BASE_DIR/$DATA_DIR/$g_user_id/Experiments/$experiment_id/$EXP_DATA_FILE_NAME_ROOT.txt'\n"; }
-	
-	return "";
-}
-
-sub format_error_message
-{
-	my $array_ref = shift;
-	my $ret_str = "";
-	
-	foreach (@{$array_ref})
-	{
-		$ret_str .= $_;
-		$ret_str .= "<br>";
-	}
-	return $ret_str;
 }
 
 sub delete_directory
@@ -5121,6 +5827,12 @@ sub print_javascript
 	print qq!<SCRIPT LANGUAGE="JavaScript">\n\n!;
 	if($more_js) { print "$more_js\n\n"; }
 	print <<JSCRIPT;
+	
+	function check_show_results(log_file_url)
+	{
+		\$( '#new_exp_result' ).load(log_file_url);
+		parent.frame1.location.reload('../copurification-cgi/copurification.pl?frame=1');
+	}
 
 	// Row Hide function.
 	function expandcontract(tId, clickIcon)
@@ -5214,7 +5926,7 @@ sub print_javascript
 			}
 		}
 	}
-	function lanes_report(arg1, arg2, arg3)
+	function lanes_report(arg1, arg2, arg3, arg4)
 	{
 		check_arr = document.getElementsByName('check_lanes');
 		submit_string = "submit=LanesReport;IdList=";
@@ -5229,18 +5941,26 @@ sub print_javascript
 				first = 0;
 			}	
 		}
-		window.open("./copurification.pl?" + submit_string + ";protein=" + arg1 + ";species=" + arg2 + ";type=" + arg3)
+		window.open("./copurification.pl?" + submit_string + ";protein=" + arg1 + ";species=" + arg2 + ";type=" + arg3 + ";systematic_name=" + arg4)
 		
 	}
-	function change_lanes()
+	function change_lanes(remove_rects)
 	{
+		//need to remove any rects (from adding manual bands) b/c size of lane imgs may change therefore rect will become unaligned
+		if(remove_rects)
+		{
+			\$(".rect").remove();
+		}
+		
 		var value = \$( "#slider" ).slider( "option", "value" );
+		
 		if(value == 0)
 		{
 			arr = document.getElementsByName('lane_image'); 
 			for(i = 0; i < arr.length; i++)
 			{
 				arr[i].style.display = "";
+				lane_img_n='';
 			}
 			
 			var arr = document.getElementsByName('norm_lane_image');
@@ -5250,6 +5970,12 @@ sub print_javascript
 			}
 			
 			var arr = document.getElementsByName('norm_lane_image2');
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "none";
+			}
+			
+			var arr = document.getElementsByName('norm_lane_image3');
 			for(i = 0; i < arr.length; i++)
 			{
 				arr[i].style.display = "none";
@@ -5262,9 +5988,43 @@ sub print_javascript
 			for(i = 0; i < arr.length; i++)
 			{
 				arr[i].style.display = "";
+				lane_img_n='-n';
 			}
 			
 			var arr = document.getElementsByName('norm_lane_image2');
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "none";
+			}
+			
+			var arr = document.getElementsByName('norm_lane_image3');
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "none";
+			}
+			
+			arr = document.getElementsByName('lane_image'); 
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "none";
+			}
+		}
+		else if(value == 2)
+		{
+			var arr = document.getElementsByName('norm_lane_image2');
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "";
+				lane_img_n='-nn';
+			}
+			
+			var arr = document.getElementsByName('norm_lane_image3');
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "none";
+			}
+			
+			var arr = document.getElementsByName('norm_lane_image');
 			for(i = 0; i < arr.length; i++)
 			{
 				arr[i].style.display = "none";
@@ -5278,10 +6038,17 @@ sub print_javascript
 		}
 		else
 		{
-			var arr = document.getElementsByName('norm_lane_image2');
+			var arr = document.getElementsByName('norm_lane_image3');
 			for(i = 0; i < arr.length; i++)
 			{
 				arr[i].style.display = "";
+				lane_img_n='-nnn';
+			}
+			
+			var arr = document.getElementsByName('norm_lane_image2');
+			for(i = 0; i < arr.length; i++)
+			{
+				arr[i].style.display = "none";
 			}
 			
 			var arr = document.getElementsByName('norm_lane_image');
@@ -5335,37 +6102,46 @@ sub print_javascript
 			winpops.document.write("<p>" + text + "</p>");
 	}
 	
-	function show_popup_for_lane (id,Gel_Num,Lane_Order,Show_Current_Data,MS_Search_Engine,Mass_Spect_File,Shared_Project)
+	function show_popup_for_lane (id,Gel_Id,Gel_Num,Display_Name,Lane_Order,Show_Current_Data,MS_Search_Engine,Mass_Spect_File,Shared_Project,xml_file)
 	
 	{
 		hide_popup_for_lane ('Add MS Database to Lane');  // force the close button in case of lane jumping
 		hide_popup_for_band ('Add MS Protein to Band');
 		document.getElementById('error_message_for_lane_popup').style.display="";  // need to reset in case someone switches lanes
 		
-		document.getElementById('Gel_Id_for_Display').innerHTML = Gel_Num;
+		document.getElementById('Gel_Id_for_Display').innerHTML = Display_Name;
 		document.getElementById('LaneOrder').innerHTML = Lane_Order;
 		
 		document.getElementById('Lane_Order_for_Popup').value = Lane_Order; //this sends data back for updating DB
+		document.getElementById('Gel_Id_for_Popup').value = Gel_Id;
+		document.getElementById('Gel_No_for_Popup').value = Gel_Num;
 		document.getElementById('Xtandem').selected = "true";
 		document.getElementById('mass_spect_file').value = "";
 		document.getElementById('mass_spect_file').required = ""; //cannot make required must handle in code
 		//never turn on input panel when viewing experiment belonging to someone else
-		if (Shared_Project == 1) {
-			document.getElementById('Lane Popup Header').style.display="none";
-			document.getElementById('Lane Input Panel').style.display="none";
-		}
+		//if (Shared_Project == 1) {
+		//	document.getElementById('Lane Popup Header').style.display="none";
+		//	document.getElementById('Lane Input Panel').style.display="none";
+		//}
 		
 		if (Show_Current_Data == 1) {
 			document.getElementById('cur_ms_search_engine').innerHTML = MS_Search_Engine;
 			document.getElementById('cur_local_ms_file').href = Mass_Spect_File;
+			if(xml_file == 1)
+			{
+				document.getElementById('cur_local_ms_file').download = "xml_file";
+			}
 			document.getElementById('Display Existing Lane Info').style.display="";
 			document.getElementById('delMassSpectButton').style.display="";
   			document.getElementById('Lane Popup Header').style.display="";
+			document.getElementById('ms_search_engine').value=MS_Search_Engine;
+  			//document.getElementById('info_message_for_lane_file').style.display="";
 		} else {
 			document.getElementById('cur_ms_search_engine').innerHTML = " ";
 			document.getElementById('cur_local_ms_file').href = " ";
 			document.getElementById('Display Existing Lane Info').style.display="none";
-			document.getElementById('delMassSpectButton').style.display="none";			
+			document.getElementById('delMassSpectButton').style.display="none";
+			//document.getElementById('info_message_for_lane_file').style.display="none"; 
 		}
 		
 		document.getElementById('band_or_lane').value = 'lane';
@@ -5387,7 +6163,7 @@ sub print_javascript
 		if (Switch_Color != 0) {document.getElementById(id).style.color="orange"};
 	}
 	
-	function show_popup_for_band (id,GelNum,Lane_Order,Band_Id,Band_Mass,Protein_Id,Show_Current_Data,Id_Method_for_Rollover,Search_Engine_for_Rollover,Systematic_Name_for_Rollover,Mass_Spect_File,Shared_Project)
+	function show_popup_for_band (id,GelNum,GelName,Lane_Order,Band_Id,Band_Mass,Protein_Id,Show_Current_Data,Id_Method_for_Rollover,Search_Engine_for_Rollover,Systematic_Name_for_Rollover,Common_Name_for_Rollover,Mass_Spect_File,Shared_Project,Verified_On_Gel,xml_file)
 	{
 		hide_popup_for_lane ('Add MS Database to Lane');
 		
@@ -5398,9 +6174,11 @@ sub print_javascript
 		document.getElementById('error_message_for_band_popup').innerHTML = " ";  // need to reset in case someone switches bands
 
 		//these elements populate the header for the popup	
-		document.getElementById('GelIdforBand').innerHTML = GelNum;
+		document.getElementById('GelIdforBand').innerHTML = GelName;
 		document.getElementById('LaneOrderforBand').innerHTML = Lane_Order;
 		document.getElementById('Band_Mass_for_Display').innerHTML = Band_Mass;
+		
+		document.getElementById('Gel_No_for_Popup').value = GelNum;
 		
 		//
 		document.getElementById('Lane_Order_for_Popup').value = Lane_Order; //this sends data back for updating DB
@@ -5411,39 +6189,92 @@ sub print_javascript
 		document.getElementById('ms_protein_name').value = "";
 		document.getElementById('ms_protein_name').required = ""; // cannot make required because of delete button - handle in code
 		document.getElementById('mass spec').selected = "true";
-		document.getElementById('Cur_Systematic_Name_For_Band').value = Systematic_Name_for_Rollover;
-		//never turn on input panel when viewing experiment belonging to someone else
-		if (Shared_Project == 1) {
-			document.getElementById('Band Popup Header').style.display="none";
-			document.getElementById('Band Input Panel').style.display="none";
-		}
+		document.getElementById('Cur_Systematic_Name_For_Band').value = Common_Name_for_Rollover;
 		
-		if (Show_Current_Data == 1) {
-			document.getElementById('cur_band_protein').innerHTML = Systematic_Name_for_Rollover;
+		//never turn on input panel when viewing experiment belonging to someone else
+		//if (Shared_Project == 1) {
+		//	document.getElementById('Band Popup Header').style.display="none";
+		//	document.getElementById('Band Input Panel').style.display="none";
+		//}
+		
+		if (Show_Current_Data == 1)
+		{
+			document.getElementById('cur_band_protein').innerHTML = Common_Name_for_Rollover;
 			document.getElementById('cur_protein_id_method').innerHTML = Id_Method_for_Rollover;
+			
 			document.getElementById('delMassSpectButton2').style.display="";
-			if (Id_Method_for_Rollover == "mass spec") {
+			if (Id_Method_for_Rollover == "mass spec")
+			{
 				document.getElementById('cur_ms_search_engine_for_band').innerHTML = Search_Engine_for_Rollover;
 				document.getElementById('cur ms spect engine display for band').style.display = "";
 				document.getElementById('cur_local_ms_file_for_band').href = Mass_Spect_File;
+				if(xml_file == 1)
+				{
+					document.getElementById('cur_local_ms_file_for_band').download = "xml_file";
+				}
 				document.getElementById('cur ms spect file display for band').style.display = "";
-			} else {
+			}
+			else
+			{
 				document.getElementById('cur ms spect engine display for band').style.display = "none";
 				document.getElementById('cur ms spect file display for band').style.display = "none";
 			}
 			document.getElementById('Band Popup Header').style.display="";
 			document.getElementById('Display Existing Band Info').style.display="";
-		} else {
+			
+			document.getElementById('ms_protein_name').value = Systematic_Name_for_Rollover;
+			document.getElementById('ms_protein_id_method').value = Id_Method_for_Rollover;
+			if(Verified_On_Gel=="No")
+			{
+				document.getElementById('cur_verified_on_this_gel').innerHTML="No";
+				document.getElementById('verified_on_this_gel_no').checked = true;
+			}
+			else
+			{
+				document.getElementById('cur_verified_on_this_gel').innerHTML="Yes";
+				document.getElementById('verified_on_this_gel_yes').checked = true;
+			}
+			if (Id_Method_for_Rollover == "mass spec") 
+			{
+				document.getElementById('ms_search_engine_for_band').value = Search_Engine_for_Rollover;
+				//document.getElementById('ms_search_engine_for_band').style.display = "";
+				//document.getElementById('mass_spect_file_for_band').style.display = "";
+				//document.getElementById('info_message_for_band_file').style.display = "";
+				
+				document.getElementById('ms spect engine display for band').style.display="";
+				document.getElementById('ms spect file display for band').style.display="";
+				document.getElementById('ms spect file display for band').required = "true";
+			}
+			else
+			{
+				document.getElementById('ms_search_engine_for_band').value = "Xtandem";
+				//document.getElementById('ms_search_engine_for_band').style.display = "none";
+				//document.getElementById('mass_spect_file_for_band').style.display = "none";
+				//document.getElementById('info_message_for_band_file').style.display = "none";
+				
+				document.getElementById('ms spect engine display for band').style.display="none";
+				document.getElementById('ms spect file display for band').style.display="none";			
+				document.getElementById('ms spect file display for band').required = "";
+								
+
+			}
+		}
+		else
+		{
 			document.getElementById('cur_band_protein').innerHTML = " ";
 			document.getElementById('cur_protein_id_method').innerHTML = " ";
 			document.getElementById('cur_ms_search_engine_for_band').innerHTML = " ";
 			document.getElementById('cur_local_ms_file_for_band').href = " ";
 			document.getElementById('Display Existing Band Info').style.display="none";
 			document.getElementById('delMassSpectButton2').style.display="none";
+			
+			document.getElementById('ms_protein_name').value = "";
+			document.getElementById('ms_protein_id_method').value = "mass spec";
+			document.getElementById('ms_search_engine_for_band').value = "Xtandem";
+			document.getElementById('verified_on_this_gel_yes').checked = true;
+			document.getElementById('verified_on_this_gel_no').checked = false;
 		}
-
 		document.getElementById('band_or_lane').value = 'band';
-		
 		document.getElementById(id).style.display="";
 	}
 
@@ -5477,8 +6308,8 @@ sub print_javascript
 	{
 		document.getElementById('band_or_lane').value = type;
 		document.getElementById('update_or_delete').value = update_or_delete;
-		document.getElementByName('action').value = "Add MS Data";
-		checkAndSubmit();
+		//document.getElementByName('action').value = "Save MS Data";
+		//checkAndSubmit();
 	}
 	</SCRIPT>
 
@@ -5492,6 +6323,7 @@ sub display_query_results
 	
 	my $protein = shift;
 	my $species = shift;
+	my $sys_ID = shift;
 
 	my $lane_ids_ref = shift;
 	my $reagents_ref = shift;
@@ -5525,20 +6357,53 @@ sub display_query_results
 	my $notes_ref = shift;
 	#added for SRF update
 	my $srf_ref = shift;
+	my $elution_method_ref=shift;
+	my $elution_reagent_ref=shift;
+	my $citations_ref=shift;
+	my $xrefs_ref=shift;
+	my $lane_ms_ref=shift;
 	my $max_over = shift; #if this is true display a message that we are only dipslay up to max number of display lanes 
 	#print start_multipart_form();
-	print qq!<h3>Results for $protein ($species) &nbsp;&nbsp;&nbsp;!;
-	print qq!<input type="button" value="Create Report (pdf)" onclick="lanes_report('$protein', '$species', '$mode')"></h3>!;
+	print qq!<h3>Results for $protein ($species) [ID: $sys_ID] &nbsp;&nbsp;&nbsp;!;
+	print qq!<input type="button" value="Create Report (pdf)" onclick="lanes_report('$protein', '$species', '$mode', '$sys_ID')"></h3>!;
 	
 	my @lane_ids_arr = @{$lane_ids_ref};
 
 	if($#lane_ids_arr < 0) { print p("No lanes matched your query."); }
 	else
 	{
+		my $cur_lane_id;
+		
 		print $image_map_str;
 		if($max_over) { print p("The first $MAX_DISPLAY_LANES lanes are displayed."); }
 		print "<table rules=all>";
-
+		
+		#print out check box selections for each lane
+		print "<tr>";
+		print "<td><input type='button' value='Filter Lanes' onclick='filter_lanes()'/></td>";
+		$cur_lane_id = 0;
+		foreach (@{$checks_tags_ref})
+		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
+		print "</tr>";
+		
+		#display lane image for each lane
+		print "<tr>";
+		print '<td><b>Lane Image</b><br><br>';
+		print '<div id="slider" style="width:100px"></div>';
+		print '<script>$( "#slider" ).slider({ min: 0, max: 3 }); $( "#slider" ).on( "slidechange", function( event, ui ) { change_lanes(0); } ); </script>';
+		print "</td>";
+		$cur_lane_id = 0;
+		foreach (@{$img_tags_ref})
+		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
+		print "</tr>";
+		
+		print "<tr>";
+		print "<td><b>Lane MS</b></td>";
+		$cur_lane_id = 0;
+		foreach (@{$lane_ms_ref})
+		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
+		print "</tr>";
+		
 		#print out, by column, the conditions for each lane
 		my @reagent_types = Biochemists_Dream::Reagent_Types -> retrieve_from_sql(qq{ Display_Order > 0 ORDER BY Display_Order});
 		#my @reagent_types = Biochemists_Dream::Reagent_Types -> retrieve_all;
@@ -5561,7 +6426,7 @@ sub display_query_results
 		#ph
 		print "<tr>";
 		print "<td><b>pH</b></td>";
-		my $cur_lane_id = 0;
+		$cur_lane_id = 0;
 		foreach (@{$ph_ref})
 		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
 		print "</tr>";
@@ -5662,6 +6527,22 @@ sub display_query_results
 		foreach (@{$srf_ref})
 		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
 		print "</tr>";
+		
+		#Elution method
+		print "<tr>";
+		print "<td><b>Elution method</b></td>";
+		$cur_lane_id = 0;
+		foreach (@{$elution_method_ref})
+		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
+		print "</tr>";
+		
+		#Elution reagent
+		print "<tr>";
+		print "<td><b>Elution reagent</b></td>";
+		$cur_lane_id = 0;
+		foreach (@{$elution_reagent_ref})
+		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
+		print "</tr>";
 
 		#Experiment Procedures File link
 		print "<tr>";
@@ -5707,23 +6588,20 @@ sub display_query_results
 			{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
 			print "</tr>";
 		}
-
-		#display lane image for each lane
+		
+		#print out the citation for each lane
 		print "<tr>";
-		print '<td><b>Lane Image</b><br><br>';
-		print '<div id="slider" style="width:100px"></div>';
-		print '<script>$( "#slider" ).slider(); $( ".selector" ).slider({ min: 0 }); $( "#slider" ).slider({ max: 2 }); $( "#slider" ).on( "slidechange", function( event, ui ) { change_lanes(); } ); </script>';
-		print "</td>";
+		print "<td><b>Citation</b></td>";
 		$cur_lane_id = 0;
-		foreach (@{$img_tags_ref})
+		foreach (@{$citations_ref})
 		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
 		print "</tr>";
 		
-		#print out check box selections for each lane
+		#print out the citation for each lane
 		print "<tr>";
-		print "<td><input type='button' value='Filter Lanes' onclick='filter_lanes()'/></td>";
+		print "<td><b>XRef</b></td>";
 		$cur_lane_id = 0;
-		foreach (@{$checks_tags_ref})
+		foreach (@{$xrefs_ref})
 		{ print "<td name='l_$lane_ids_arr[$cur_lane_id]'>$_</td>"; $cur_lane_id++; }
 		print "</tr>";
 		
@@ -5747,6 +6625,7 @@ sub save_query_results
 	
 	my $protein = shift;
 	my $species = shift;
+	my $sys_ID = shift;
 
 	my $lane_ids_ref = shift;
 	my $reagents_ref = shift;
@@ -5773,6 +6652,8 @@ sub save_query_results
 	my $other_cap_ref = shift;
 	my $notes_ref = shift;
 	my $single_reagent_flag_ref = shift;
+	my $elution_method_ref = shift;
+	my $elution_reagent_ref = shift;
 	my $page_number = shift;
 	
 	print HTM_OUT <<START_HTML;	
@@ -5780,13 +6661,13 @@ sub save_query_results
 <head>
 <meta charset="utf-8">
 <title>copurification.org</title>
-<link rel="stylesheet" href="../../html/main.css">
+<link rel="stylesheet" href="../../html/main2.css">
 </head>
 <body > <!-- style="background-color:white;"  -->
 START_HTML
 
 	print HTM_OUT "<a href='http://www.copurification.org' target='_blank' >www.copurification.org</a><br><br>";
-	print HTM_OUT qq!<h3>Results for $protein ($species)!;
+	print HTM_OUT qq!<h3>Results for $protein ($species) [ID: $sys_ID]!;
 	if($page_number > 1) { print HTM_OUT " - Page $page_number"; }
 	print HTM_OUT qq!</h3>!;
 	
@@ -5863,6 +6744,27 @@ START_HTML
 		print HTM_OUT "<tr>";
 		print HTM_OUT "<td><b>Notes</b></td>";
 		foreach (@{$notes_ref})
+		{ print HTM_OUT "<td >$_</td>"; }
+		print HTM_OUT "</tr>";
+		
+		#single reagent flag
+		print HTM_OUT "<tr>";
+		print HTM_OUT "<td><b>Single Reagent</b></td>";
+		foreach (@{$single_reagent_flag_ref})
+		{ print HTM_OUT "<td >$_</td>"; }
+		print HTM_OUT "</tr>";
+		
+		#elution method
+		print HTM_OUT "<tr>";
+		print HTM_OUT "<td><b>Elution Method</b></td>";
+		foreach (@{$elution_method_ref})
+		{ print HTM_OUT "<td >$_</td>"; }
+		print HTM_OUT "</tr>";
+		
+		#elution reagent
+		print HTM_OUT "<tr>";
+		print HTM_OUT "<td><b>Elution Reagent</b></td>";
+		foreach (@{$elution_reagent_ref})
 		{ print HTM_OUT "<td >$_</td>"; }
 		print HTM_OUT "</tr>";
 		
@@ -6117,30 +7019,39 @@ sub create_lane_grouping_html
 	}
 }
 
-sub add_mass_spect_data_and_file_to_lane {
-#get   parameter fields from web page
-	my @params = param();
-	my $Exp_Id= param('Exp_Id_for_Popup');
-	my $Gel_Id = param('Gel_Id_for_Popup');
-	my $Gel_No = param('Gel_No_for_Popup');
+sub add_mass_spect_data_and_file_to_lane
+{
+	#get   parameter fields from web page
+	my @params = param_check();
+	my $Exp_Id= param_check('Exp_Id_for_Popup');
+	my $Gel_Id = param_check('Gel_Id_for_Popup');
+	my $Gel_No = param_check('Gel_No_for_Popup');
 	my $lane_id;
-	my $Lane_Order = param('Lane_Order_for_Popup');
-	my $ms_search_engine = param('ms_search_engine');
+	my $Lane_Order = param_check('Lane_Order_for_Popup');
+	my $ms_search_engine = param_check('ms_search_engine');
+	
 	my $mass_spect_file = param('mass_spect_file');
-	my $band_or_lane = param('band_or_lane');
-	my $update_or_delete = param('update_or_delete');
-#retrieve the lane row 	
+	$mass_spect_file = param_check_file_name('mass_spect_file',$mass_spect_file); 
+	
+	my $band_or_lane = param_check('band_or_lane');
+	my $update_or_delete = param_check('update_or_delete');
+	
+	#print DEVEL_OUT "Exp_Id=$Exp_Id, Gel_Id=$Gel_Id, Gel_No=$Gel_No, Lane_Order=$Lane_Order, ms_search_engine=$ms_search_engine, band_or_lane=$band_or_lane, update_or_delete=$update_or_delete.";
+		
+	#retrieve the lane row 	
 	my @lanes = Biochemists_Dream::Lane -> retrieve_from_sql( qq { Gel_Id = $Gel_Id AND Lane_Order = $Lane_Order } );
-#update MS_Search_Engine (null if it is deletion)
+	#update MS_Search_Engine (null if it is deletion)
 	my $lane;
 	my $redisplay_ext;
 	my $redisplay_search_engine;
-	foreach $lane (@lanes){
+	foreach $lane (@lanes)
+	{
 		$lane_id = $lane -> get("Id");
 		$redisplay_ext = $lane -> get("MS_File_Suffix");
 		$redisplay_search_engine = $lane -> get("MS_Search_Engine");
 		
-		if ($update_or_delete eq "Delete") {
+		if ($update_or_delete eq "Delete")
+		{
 			my $ext = $lane -> get('MS_File_Suffix');
 			my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
 			my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
@@ -6150,252 +7061,455 @@ sub add_mass_spect_data_and_file_to_lane {
 			$lane -> set('MS_Search_Engine' => $set_to_null);
 			$lane -> set('MS_File_Suffix' => $set_to_null);
 			$lane -> update();
-		} else {
+		}
+		else
+		{
 			#lane table update
-			if ($mass_spect_file eq "") {
-				param ('Redisplay_Cur_Search_Engine', $redisplay_search_engine);
-				my $experiment_dir = "/copurification/$g_user_id/Experiments";
-				my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
-				my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname.$redisplay_ext";
- 				param ('Redisplay_Cur_Results_File', $local_fname);
-				param ('Lane_Popup_Error_Message', "A mass spec file is required. Please choose a file.");
-				param ('Redisplay_Lane_Popup', 'Yes');
-				return;
-			}
-			
-			my $extension = $mass_spect_file;
-			$extension =~ s/^.*\.([^\.]+)$/$1/;
-			my $testres = test_file_extension($extension);	
-			if ($testres == 0) {
-				my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
-#
-				#to resolve deleting of old file enter if logic comparing old to new ext
-				#if different delete old file before updating and uploading BA06142016
-				#if same extension then do not have to delete first
-				my $cur_ext = $lane -> get('MS_File_Suffix');
-				my $cur_local_fname = "$experiment_dir/$Exp_Id/gel$Gel_No.lane.$Lane_Order.ms.$cur_ext";
-				unlink($cur_local_fname);
-#
-				$lane -> set('MS_Search_Engine' => $ms_search_engine);
-				$lane -> set('MS_File_Suffix' => $extension);
-				$lane -> update();
-				#MS Results File Upload
-				#my $experiment_dir = "/copurification/$g_user_id/Experiments";
-				my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
-				my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname";
+			if ($mass_spect_file eq "" && (!$lane->get('MS_File_Suffix'))) #allow to keep existing if field left blank
+			{
+				##param ('Redisplay_Cur_Search_Engine', $redisplay_search_engine);
+				##my $experiment_dir = "/copurification/$g_user_id/Experiments";
+				##my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
+				##my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname.$redisplay_ext";
+				##
+				##param ('Redisplay_Cur_Results_File', $local_fname);
+				##param ('Lane_Popup_Error_Message', "A mass spec file is required. Please choose a file.");
+				##param ('Redisplay_Lane_Popup', 'Yes');
 				
-				my $lw_fh = upload('mass_spect_file');
-				my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
-				if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload ms file: $mass_spect_file, $local_fname.\n"; }
-				my $err_str = upload_file($mass_spect_file, $io_fh, $local_fname); #, $ext);  this is a returned value
-				if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
-			} else {
-				#MS Results File For Redisplay
-				my $experiment_dir = "/copurification/$g_user_id/Experiments";
-				my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
-				my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname.$redisplay_ext";
-				param ('Redisplay_Cur_Search_Engine', $redisplay_search_engine);
-				param ('Redisplay_Cur_Results_File', $local_fname);
-				param ('Lane_Popup_Error_Message', "The MS Results File has a bad file extension.  Please select another file.");
-				param ('Redisplay_Lane_Popup', 'Yes');
+				return "A mass spec file is required. Please choose a file.";
 			}
 			
+			if ($mass_spect_file eq "")
+			{ #just update ms search engine; file already exists and not changing
+				$lane -> set('MS_Search_Engine' => $ms_search_engine);
+				$lane -> update();
+			}
+			else
+			{#update file and ms search engine both
+				my $extension = $mass_spect_file;
+				$extension =~ s/^.*\.([^\.]+)$/$1/;
+				my $testres = test_file_extension($extension);	
+				if ($testres == 0)
+				{
+					my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
+	
+					#to resolve deleting of old file enter if logic comparing old to new ext
+					#if different delete old file before updating and uploading BA06142016
+					#if same extension then do not have to delete first
+					my $cur_ext = $lane -> get('MS_File_Suffix');
+					my $cur_local_fname = "$experiment_dir/$Exp_Id/gel$Gel_No.lane.$Lane_Order.ms.$cur_ext";
+					unlink($cur_local_fname);
+	
+					$lane -> set('MS_Search_Engine' => $ms_search_engine);
+					$lane -> set('MS_File_Suffix' => $extension);
+					$lane -> update();
+					#MS Results File Upload
+					#my $experiment_dir = "/copurification/$g_user_id/Experiments";
+					my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
+					my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname";
+					
+					my $lw_fh = upload('mass_spect_file');
+					my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
+					#if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload ms file: $mass_spect_file, $local_fname.\n"; }
+					my $err_str = upload_file($mass_spect_file, $io_fh, $local_fname); #, $ext);  this is a returned value
+					#if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
+				}
+				else
+				{
+					#MS Results File For Redisplay
+					##my $experiment_dir = "/copurification/$g_user_id/Experiments";
+					##my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.ms";
+					##my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname.$redisplay_ext";
+					##param ('Redisplay_Cur_Search_Engine', $redisplay_search_engine);
+					##param ('Redisplay_Cur_Results_File', $local_fname);
+					##param ('Lane_Popup_Error_Message', "The MS Results File has a bad file extension.  Please select another file.");
+					##param ('Redisplay_Lane_Popup', 'Yes');
+					
+					return "The MS Results File has a bad file extension.  Please select another file.";
+				}
+			}
 		}
 	}	
 }
 
-sub process_mass_spect_protein_to_band {
-	my @params = param();
-	my $update_or_delete = param('update_or_delete');
+sub process_mass_spect_protein_to_band
+{
+	my @params = param_check();
+	my $update_or_delete = param_check('update_or_delete');
 	
 	#get parameter fields from web page
-	my $Exp_Id = param('Exp_Id_for_Popup');
-	my $Gel_No = param('Gel_No_for_Popup');
-	my $Lane_Order = param('Lane_Order_for_Popup');
-	my $Band_Id = param('Band_Id_for_File');
+	my $Exp_Id = param_check('Exp_Id_for_Popup');
+	my $Gel_No = param_check('Gel_No_for_Popup');
+	my $Lane_Order = param_check('Lane_Order_for_Popup');
+	my $Band_Id = param_check('Band_Id_for_File');
 	my $ext; #existing ms file suffix
 	my $band_protein;
 	my $Protein_ID_Method;
-	my $mass_spect_file = param('mass_spect_file_for_band'); #file entered from web page
-	my $ms_protein_id_method = param('ms_protein_id_method');
-	my $ms_protein_name = param('ms_protein_name');
-	print DEVEL_OUT "\nprotein name upon input is $ms_protein_name\n";
-	print DEVEL_OUT "in process ms: the lane is $Lane_Order, existing suffix is $ext, no new suffix yet\n";
+	my $mass_spect_file = param_check('mass_spect_file_for_band'); #file entered from web page
+	my $ms_protein_id_method = param_check('ms_protein_id_method');
+	my $ms_protein_name = param_check('ms_protein_name');
+	my $propogate_label = param_check('propogate_label');
+	my $propogate_range = param_check('propogate_label_mass_range');
+	
+	#print DEVEL_OUT "\nprotein name upon input is $ms_protein_name\n";
+	#print DEVEL_OUT "in process ms: the lane is $Lane_Order, existing suffix is $ext, no new suffix yet\n";
 
-	if ($update_or_delete eq "Delete") {
+	if ($update_or_delete eq "Delete")
+	{
 		#must retrieve band_protein to get information and to delete
 		my @band_protein = Biochemists_Dream::Band_Protein -> search(Band_Id => $Band_Id);
-		foreach $band_protein (@band_protein){
+		foreach $band_protein (@band_protein)
+		{
 			#must get extension from band_protein (note - must clear that out also)
 			$ext = $band_protein -> get("MS_File_Suffix");
 			$Protein_ID_Method = $band_protein -> get("Protein_ID_Method");
 			$band_protein->delete;
 		}
 		#delete the mass spec results file
-		if ($Protein_ID_Method eq "mass spec") {
+		if ($Protein_ID_Method eq "mass spec")
+		{
 			my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
 			my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.band.$Band_Id.ms.$ext";
 			my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname";
 			unlink($local_fname);
 		}
-		return;
+		#set verified flag to null
+		my $band = Biochemists_Dream::Band -> retrieve($Band_Id);
+		$band -> set('Used_for_Protein_ID' => undef);
+		$band -> update();
+		
+		return "";
 	}
-#falling through means all this code is for processing the addition or updated of a protein
-#
-#first, edit the input fields (note - had ot turn off the required attribure in HTML for now)
-	print DEVEL_OUT "\nprotein name at test is $ms_protein_name\n";
-	if ($ms_protein_name eq "") {
-		if ($ms_protein_id_method eq "mass spec") {
-			param ('Turn_On_MS_Input', 'Yes');
-		} else {
-			param ('Turn_On_MS_Input', 'No');
-		}
-		param ('Band_Popup_Error_Message', "Protein has not been entered. Please enter a protein name.");
-		param ('Redisplay_Band_Popup', 'Yes');
-		return;
-	} 
-	if ($mass_spect_file eq "" and $ms_protein_id_method eq "mass spec") {
-		param ('Turn_On_MS_Input', 'Yes');
-		param ('Band_Popup_Error_Message', "A mass spec file is required. Please choose a file.");
-		param ('Redisplay_Band_Popup', 'Yes');
-		return;
-	}
-#once the input fields are checked for entry - they are validated to be sure the values are correct
-#	if ($update_or_delete eq "Update") {
-	#test for bad file extension. if bad do not update anything and return and error message
-	my $new_extension = $mass_spect_file;
-	$new_extension =~ s/^.*\.([^\.]+)$/$1/;
-	my $testres = test_file_extension($new_extension);	
-	if ($testres == 0)
+	#falling through means all this code is for processing the addition or updated of a protein
+	#
+	#first, edit the input fields (note - had ot turn off the required attribure in HTML for now)
+	#print DEVEL_OUT "\nprotein name at test is $ms_protein_name\n";
+	if ($ms_protein_name eq "")
 	{
-		add_upd_mass_spect_protein_to_band ($new_extension);
-	} else {
-		param ('Turn_On_MS_Input', 'Yes');
-		param ('Band_Popup_Error_Message', "The MS Results File has a bad file extension.  Please select another file.");
-		param ('Redisplay_Band_Popup', 'Yes');
+		##if ($ms_protein_id_method eq "mass spec")
+		##{ param ('Turn_On_MS_Input', 'Yes'); }
+		##else
+		##{ param ('Turn_On_MS_Input', 'No'); }
+		##param ('Band_Popup_Error_Message', "Protein has not been entered. Please enter a protein name.");
+		##param ('Redisplay_Band_Popup', 'Yes');
+		
+		return "Protein has not been entered. Please enter a protein name.";
+	}
+	
+	if ($mass_spect_file eq "" and $ms_protein_id_method eq "mass spec")
+	{
+		#check if there's already existing file first, this is allowed (i.e. protein id method is mass spec)
+		my @band_proteins = Biochemists_Dream::Band_Protein -> search(Band_Id => $Band_Id);
+		my $id_method="";
+		if(scalar(@band_proteins)>0)
+		{ $id_method = $band_proteins[0] -> get("Protein_ID_Method"); } # NOTE: all band proteins should have the same ID method
+		if ($id_method ne "mass spec") 
+		{
+			##param ('Turn_On_MS_Input', 'Yes');
+			##param ('Band_Popup_Error_Message', "A mass spec file is required. Please choose a file.");
+			##param ('Redisplay_Band_Popup', 'Yes');
+			return "A mass spec file is required. Please choose a file.";
+		}
+	}
+	if($propogate_label)
+	{
+		if($propogate_range !~ /^[0-9\.]+$/ || $propogate_range !~ /[0-9]+/ || $propogate_range !~ /\.?/)   
+		{
+			##param ('Turn_On_MS_Input', 'Yes');
+			##param ('Band_Popup_Error_Message', "Band mass range for propogating labels is invalid.  Please enter numerical data.");
+			##param ('Redisplay_Band_Popup', 'Yes');
+			return "Band mass range for propogating labels is invalid.  Please enter numerical data.";
+		}
+	}
+	
+	#once the input fields are checked for entry - they are validated to be sure the values are correct
+	#test for bad file extension. if bad do not update anything and return and error message
+	if ($ms_protein_id_method eq "mass spec" && $mass_spect_file ne "")
+	{
+		my $new_extension = $mass_spect_file;
+		$new_extension =~ s/^.*\.([^\.]+)$/$1/;
+		my $testres = test_file_extension($new_extension);	
+		if ($testres == 0)
+		{
+			my $err_msg = add_upd_mass_spect_protein_to_band ($new_extension);
+			return $err_msg;
+		}
+		else
+		{
+			##param ('Turn_On_MS_Input', 'Yes');
+			##param ('Band_Popup_Error_Message', "The MS Results File has a bad file extension.  Please select another file.");
+			##param ('Redisplay_Band_Popup', 'Yes');
+			return "The MS Results File has a bad file extension.  Please select another file.";
+		}	
+	}
+	else
+	{
+		my $err_msg = add_upd_mass_spect_protein_to_band ("");
+		return $err_msg;
 	}	
-#	}
 }
 
-sub add_upd_mass_spect_protein_to_band {
-	my @params = param();
+sub add_upd_mass_spect_protein_to_band 
+{
+	my @params = param_check();
 
 	my $new_extension = $_[0];
 
-	my $ms_protein_name = param('ms_protein_name');
-	my $ms_protein_id_method = param('ms_protein_id_method');
-	my $cur_protein_id = param('Protein_Id_for_Rollover');
-	my $cur_species = param('current_species');
-	my $Band_Id = param('Band_Id_for_File');
-	my $Band_Mass = param('Band_Mass_for_Popup');
+	my $ms_protein_name = param_check('ms_protein_name');
+	my $ms_protein_id_method = param_check('ms_protein_id_method');
+	my $cur_protein_id = param_check('Protein_Id_for_Rollover');
+	my $cur_species = param_check('current_species');
+	my $Band_Id = param_check('Band_Id_for_File');
+	my $Band_Mass = param_check('Band_Mass_for_Popup');
+	my $propogate_label = param_check('propogate_label');
+	my $propogate_range = param_check('propogate_label_mass_range');
+	my $verified_on_gel = param_check('verified_on_this_gel');
 
 	my $common_name;
 	my $Protein_Id;
 	my $ms_search_engine;
 	my $ms_file_suffix;
 	my $band_protein;
-	my $ext; #curr ms file suffix
+	my $id_in_db;
 	
-	my $Lane_Order = param('Lane_Order_for_Popup'); #just for testing
-	print DEVEL_OUT "in add_upd ms: the lane is $Lane_Order, existing suffix is $ext, new suffix $new_extension\n";
-
-# First Validate the Incoming Protein
+	my $Lane_Order = param_check('Lane_Order_for_Popup'); #just for testing
+	
+	# First Validate the Incoming Protein
 	$Biochemists_Dream::GelDataFileReader::species = $cur_species;
-	my $call_validator = validate_protein_name($ms_protein_name, $cur_species, $common_name);
-	$Protein_Id = $cur_species; #subroutine returns it in this position - -1: protein_db_id, 1, protein_id, 0 fail (nothing)
-	if ($call_validator ==  0)
-	{
-		#param ('Redisplay_MS_Protein_Name', $ms_protein_name);doesn't work - double check this section
-		param ('Band_Id_for_Popup', $Band_Id);
-		param ('Band_Mass_for_Popup', $Band_Mass);
-		param ('Band_Popup_Error_Message', "Protein $ms_protein_name has  not been found. Please reenter protein name.");
-		param ('Redisplay_Band_Popup', 'Yes');
-		return; #need the return?
-	} 
-	if ($call_validator == -1) # protein has been found on search engine and must be added to table
-	{
-		# now must insert row into protein db entry
-		my $new_protein = Biochemists_Dream::Protein_DB_Entry -> insert({Protein_DB_Id => $Protein_Id, Systematic_Name => $ms_protein_name,
-											 Common_Name => $common_name});
-		$Protein_Id = $new_protein -> Id;
-	}
-	if ($call_validator !=  0) #need to check return from insert
-	{
-#		protein has been found
-		# Delete the Band_Protein
-		my @band_protein = Biochemists_Dream::Band_Protein -> search(Band_Id => $Band_Id);
-		foreach $band_protein (@band_protein){
-			#must get extension from band_protein (note - must clear that out also)
-			$ext = $band_protein -> get("MS_File_Suffix");
-			$band_protein->delete;
-		}
-		# Insert the Band_Protein with new data
-		if ($ms_protein_id_method eq "mass spec") {
-			$ms_file_suffix = $new_extension;
-			$ms_search_engine = param('ms_search_engine_for_band');
-		} else {
-			#null if protein id method is nolonger mass spec
-			$ms_file_suffix = undef;
-			$ms_search_engine = undef;
-		}
 	
-		my $new_band_protein = Biochemists_Dream::Band_Protein ->
-					insert({Band_Id => $Band_Id,
-						Protein_Id => $Protein_Id,
-						MS_Search_Engine => $ms_search_engine,
-						MS_File_Suffix => $ms_file_suffix,
-						Protein_Id_Method => $ms_protein_id_method});
+	print DEVEL_OUT "validating proteins for band: $ms_protein_name, $cur_species\n";
+	
+	#the $ms_protein_name is one or more proteins in a comma separated list
+	my @ms_protein_names = split /,/, $ms_protein_name;
+	my @name_errors_list;
+	my $j=0;
+	for my $name (@ms_protein_names)
+	{
+		$name =~ s/^\s+|\s+$//g;
+		print DEVEL_OUT "VALIDATE: name='$name'\n";
+		my $call_validator = validate_protein_name($name, $id_in_db, $common_name);
+		print DEVEL_OUT "return from validating protein for band: $call_validator, $name, $cur_species, $id_in_db, $common_name\n";
 		
-		if ($ms_protein_id_method eq "mass spec") {add_mass_spect_results_file_to_band ($new_extension, $ext);}
+		$Protein_Id = $id_in_db;
+		if ($call_validator ==  0)
+		{ push @name_errors_list, $name; }
+		else
+		{
+			if ($call_validator == -1) # protein has been found on search engine and must be added to table
+			{
+				# now must insert row into protein db entry
+				my $new_protein = Biochemists_Dream::Protein_DB_Entry -> insert({Protein_DB_Id => $Protein_Id, Systematic_Name => $name,
+													 Common_Name => $common_name});
+				$Protein_Id = $new_protein -> Id;
+			}
+		
+			#for each band, insert the band_protein and upload file (if id method is mass spec)
+			#there will be (possibly) more than one band if propogate_label is true
+			
+			my @band_id_list=();
+			my @lane_order_list=();
+			
+			push @band_id_list, $Band_Id;
+			
+			my $band = Biochemists_Dream::Band -> retrieve($Band_Id);
+			my $band_mass = $band -> get("Mass");
+			my $lane = $band -> Lane_Id;
+			my $gel = $lane -> Gel_Id;
+			my $gel_id = $gel -> get("Id");
+			my $gel_no = $gel -> get("File_Id");
+			my $exp_id = $gel -> get("Experiment_Id");
+			
+			push @lane_order_list, $lane -> get("Lane_Order");
+			my $start_lane_id = $lane -> get("Id");
+				
+			if($propogate_label)
+			{
+				# search for bands on each lane of gel, within range given (except ladder and quantity std lanes)
+				#get gel associated with given band id
+				my $band_mass = $band -> get("Mass");
+				my @lanes = Biochemists_Dream::Lane -> search(Gel_Id => $gel_id);
+				my $cur_lane;
+				foreach $cur_lane (@lanes)
+				{
+					if($cur_lane -> get("Mol_Mass_Cal_Lane") != 1 && $cur_lane -> get("Quantity_Std_Cal_Lane") != 1)
+					{
+						#look for band at mass
+						my $cur_lane_id = $cur_lane -> get("Id");
+						if($cur_lane_id != $start_lane_id)
+						{
+							my @bands = Biochemists_Dream::Band -> search(Lane_Id => $cur_lane_id);
+							my $cur_band;
+							for $cur_band (@bands)
+							{
+								my $mass = $cur_band -> get("Mass");
+								if(abs($mass-$band_mass) < $propogate_range)
+								{
+									#add this band id to the list to add a label
+									push @band_id_list, $cur_band -> get("Id");
+									push @lane_order_list, $cur_lane->get("Lane_Order");
+								}
+							}
+						}
+					}
+				}
+			}
+			
+			my $band_id_to_label;
+			my $i=0;
+			my $upload_success=0;
+			my $first_ext="";
+			
+			foreach $band_id_to_label (@band_id_list)
+			{
+				my $cur_lane_order = $lane_order_list[$i];
+				my $ext="";
+				
+				#if first band, set verified value to input value, else set verified value to No
+				my $band = Biochemists_Dream::Band -> retrieve($band_id_to_label);
+				if($i==0)
+				{
+					if($verified_on_gel eq 'Yes') { $band -> set('Used_for_Protein_ID' => 1); }
+					else { $band -> set('Used_for_Protein_ID' => 0); }
+				}
+				else { $band -> set('Used_for_Protein_ID' => 0); }
+				$band -> update();
+				
+				# Delete any previous Band_Protein(s)
+				my @band_protein = Biochemists_Dream::Band_Protein -> search(Band_Id => $band_id_to_label);
+				foreach $band_protein (@band_protein)
+				{
+					#must get extension from band_protein (note - must clear that out also)
+					$ext = $band_protein -> get("MS_File_Suffix"); #actually, all band_proteins have the same ms file, so same extension
+					if($i==0) {$first_ext = $ext; }
+					if($j==0) {$band_protein->delete;} # only need to do this once, when adding the first listed protein
+				}
+				
+				# Insert the Band_Protein with new data
+				if ($ms_protein_id_method eq "mass spec") 
+				{
+					$ms_file_suffix = $new_extension;
+					$ms_search_engine = param_check('ms_search_engine_for_band');
+				} 
+				else 
+				{
+					#null if protein id method is no longer mass spec
+					$ms_file_suffix = undef;
+					$ms_search_engine = undef;
+				}
+			
+				if($ms_protein_id_method eq "mass spec" && $ms_file_suffix eq "")
+				{ $ms_file_suffix=$first_ext; } #there was no file chosen by user, re-use existing file from first band
+				
+				my $new_band_protein = Biochemists_Dream::Band_Protein ->
+							insert({Band_Id => $band_id_to_label,
+								Protein_Id => $Protein_Id,
+								MS_Search_Engine => $ms_search_engine,
+								MS_File_Suffix => $ms_file_suffix,
+								Protein_Id_Method => $ms_protein_id_method});
+				
+				my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
+				my $local_ms_fname = "gel$gel_no.lane.$cur_lane_order.band.$band_id_to_label.ms";
+				my $local_fname = "$experiment_dir/$exp_id/$local_ms_fname.$ext";
+				
+				if ($j == 0)
+				{ # add/replace MS file, only needed to be done for the first protein, same for rest
+					if($ms_protein_id_method ne "mass spec" && $ext ne "") { unlink($local_fname); }
+					else
+					{
+						
+						#add/upload ms file
+						my $mass_spec_file = param('mass_spect_file_for_band');
+						if($mass_spec_file ne "")
+						{ $mass_spec_file = param_check_file_name('mass_spect_file_for_band', $mass_spec_file); }
+						
+						#if there's no ms file, 
+						#keep/copy the current file, do not do an upload
+						#otherwise delete and upload
+						
+						if(($i==0 && $mass_spec_file ne "") || ($i > 0 && $ext ne "") )
+						#if we have a new MS file to upload, delete old one
+						#or, if we are propogating, always delete old one if it exists, since we will copy from first band
+						{ unlink($local_fname); }
+							
+						if($i==0)
+						{
+							#upload file if available/else leave current file
+							if ($mass_spec_file ne "") 
+							{
+								$local_fname = "$experiment_dir/$exp_id/$local_ms_fname";
+								my $lw_fh = upload('mass_spect_file_for_band');
+								my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
+								#if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload ms file: $mass_spec_file, $local_fname.\n"; }
+								my $err_str = upload_file($mass_spec_file, $io_fh, $local_fname, $new_extension);
+								#if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
+								if($err_str eq "") { $upload_success=1; }
+							}
+							else
+							{
+								#should add check that file does indeed exist
+								$upload_success=1;
+							}
+						}
+						else
+						{
+							#copy file from first upload
+							if($upload_success)
+							{
+								my $copy_file=0;
+								my $extension = "";
+								if($mass_spec_file ne "")
+								{
+									$extension = $mass_spec_file;
+									if ($extension =~ s/^.*\.([^\.]+)$/$1/)
+									{
+										$extension = lc $extension;
+										$copy_file=1;
+									}
+								}
+								else
+								{
+									$extension=$first_ext;
+									$copy_file=1;
+								}
+								if($copy_file)
+								{
+									my $fname_to_write = "$experiment_dir/$exp_id/gel$gel_no.lane.$cur_lane_order.band.$band_id_to_label.ms.$extension";
+									my $fname_to_copy = "$experiment_dir/$exp_id/gel$gel_no.lane.$lane_order_list[0].band.$band_id_list[0].ms.$extension";
+									copy($fname_to_copy, $fname_to_write)
+								}	
+							}
+						}
+						
+					}
+				}
+				$i++;
+			}
+		}
+		$j++;
 	}
+	if (scalar(@name_errors_list) > 0)
+	{
+        #param ('Redisplay_MS_Protein_Name', $ms_protein_name);doesn't work - double check this section
+		
+		##param ('Band_Id_for_Popup', $Band_Id);
+		##param ('Band_Mass_for_Popup', $Band_Mass);
+		##param ('Redisplay_Band_Popup', 'Yes');
+		##
+		##my $str = join(',', @name_errors_list);
+		##if (scalar(@name_errors_list) > 1)
+		##{ param ('Band_Popup_Error_Message', "Proteins '$str' could not be verified and were not added for the band."); }
+		##else { param ('Band_Popup_Error_Message', "Protein '$str' could not be verified and was not added for the band."); }
+		
+		my $str = join(',', @name_errors_list);
+		if (scalar(@name_errors_list) > 1)
+		{ return "Proteins '$str' could not be verified and were not added for the band."; }
+		else { return "Protein '$str' could not be verified and was not added for the band."; }
+	}
+	else
+	{ return ""; }
 }
 
-sub add_mass_spect_results_file_to_band {
-#get parameter fields from web page
-	my @params = param();
-	
-	my $new_extension = $_[0];
-	my $old_extension = $_[1];
-	my $mass_spect_file = param('mass_spect_file_for_band');
-	my $band_or_lane = param('band_or_lane');
-	my $Exp_Id = param('Exp_Id_for_Popup');
-	my $Gel_Id = param('Gel_Id_for_Popup');
-	my $Gel_No = param('Gel_No_for_Popup');
-	my $Lane_Order = param('Lane_Order_for_Popup');
-	my $Band_Id = param('Band_Id_for_Popup');
-	my $Band_Order = param('Band_Id_for_File');
-	my $ms_protein_id_method;
-	
-	my $Saved_Lane_Order = param('Save_Lane_Order_for_Band_Processing');
-	print DEVEL_OUT "in add ms results: the lane is $Lane_Order but saved lane order is $Saved_Lane_Order, existing suffix is $old_extension, new suffix $new_extension\n";
-	if ($Lane_Order == $Saved_Lane_Order) {
-		$Lane_Order = $Saved_Lane_Order;
-		print DEVEL_OUT "in add ms results: the lane is NOW $Lane_Order, existing suffix is $old_extension, new suffix $new_extension\n";
-	}
-
-#delete any existing file first. just do it don't test for existence
-#delete results file because Protein_Id_Method has been changed to other than Mass Spec, e.g. Western Blot
-	my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
-	my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.band.$Band_Order.ms";
-	my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname.$old_extension";
-	unlink($local_fname);
-		
-#upload file if available
-	if ($mass_spect_file ne "") {
-		my $experiment_dir = "$BASE_DIR/$DATA_DIR/$g_user_id/Experiments";
-		my $local_ms_fname = "gel$Gel_No.lane.$Lane_Order.band.$Band_Order.ms";
-		my $local_fname = "$experiment_dir/$Exp_Id/$local_ms_fname";
-		my $lw_fh = upload('mass_spect_file_for_band');
-		my $io_fh = $lw_fh -> handle; # Upgrade the handle to one compatible with IO::Handle:
-		if($DEVELOPER_VERSION) { print DEVEL_OUT "About to upload ms file: $mass_spect_file, $local_fname.\n"; }
-		my $err_str = upload_file($mass_spect_file, $io_fh, $local_fname, $new_extension);
-		if($DEVELOPER_VERSION) { print DEVEL_OUT "Exited from upload file.\n"; }
-	}
-	
-	return;	
-}
-
-sub retrieve_band_protein {
+sub retrieve_band_protein { #### NOT USED!! #### 
 #online documentation states OO Perl database access does not work on many to many
 		my ($data_source, $db_name, $user, $password) = getConfig();
 		my $dbh = DBI->connect($data_source, $user, $password, { RaiseError => 1, AutoCommit => 0 });
@@ -6403,13 +7517,27 @@ sub retrieve_band_protein {
  		my $sth = $dbh->prepare($sql);
 		$sth->execute($_[0]) or die "retrieve band error code: ", $DBI::errstr;
  		my $row_count = $sth->rows;
-		if ($row_count > 0) {
-			my @row = $sth->fetchrow_array();
+		if ($row_count > 0)
+		{
+			my @row = $sth->fetchrow_array;
 			my ($Protein_Id, $Search_Engine, $Id_Method, $MS_File_Suffix) = @row;
 			$_[1] = $Id_Method;
 			$_[2] = $Search_Engine;
-			$_[3] = $Protein_Id;
+			my $Protein_Id_str = $Protein_Id;
 			$_[4] = $MS_File_Suffix;
+			while ( @row = $sth->fetchrow_array )
+			{
+				($Protein_Id, $Search_Engine, $Id_Method, $MS_File_Suffix) = @row;
+				
+				$_[1] = $Id_Method;
+				$_[2] = $Search_Engine;
+				$Protein_Id_str .= ", $Protein_Id";
+				$_[4] = $MS_File_Suffix;
+			}
+			$_[3] = $Protein_Id_str;
+			
+			print DEVEL_OUT "In retreive_band_protein: $Protein_Id_str\n";
+			
 			$sth->finish();
 			$dbh->disconnect();
 			return 1;

@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe 
+#!/usr/bin/perl
 
 #    process_experiment_gels.pl - this module is executed by copurification.pl,
 #    it calls the scripts that section the gels/find the bands, masses/quantification
@@ -69,7 +69,7 @@ eval
 	my @file_names = <"$experiment_dir/$GEL_DATA_FILE_NAME_ROOT*.*">; 
 	my $cur_gel_img_file;
 	my $cur_gel_txt_file;
-	my $n_cur_gel_txt_file; my $nn_cur_gel_txt_file;
+	my $n_cur_gel_txt_file; my $nn_cur_gel_txt_file; my $nnn_cur_gel_txt_file;
 	my $cur_gel_img_file_root;
 	my $first_gel = 1;
 	my $alignment_gel_name;
@@ -82,10 +82,11 @@ eval
 		my $gel_id = $gel -> get("Id");
 		$cur_gel_img_file = "";
 		
+		my $fn = 'gel' . "$n.$ext";
 		#go thru file list from glob and check that the current gel file exists
 		foreach my $cur_file (@file_names)
 		{
-			my $fn = 'gel' . "$n.$ext";
+			
 			$cur_gel_img_file_root = 'gel' . "$n";
 			if($cur_file =~ /$fn$/)
 			{
@@ -98,6 +99,9 @@ eval
 				$n_cur_gel_txt_file = $cur_file;
 				$cur_file =~ s/-n.txt$/-nn.txt/;
 				$nn_cur_gel_txt_file = $cur_file;
+				
+				$cur_file =~ s/-nn.txt$/-nnn.txt/;
+				$nnn_cur_gel_txt_file = $cur_file;
 						
 				last;
 			}
@@ -105,13 +109,10 @@ eval
 		
 		if($cur_gel_img_file eq "")
 		{
-			$gel -> set('Error_Description' => "Could not find gel file in Experiment directory.");
+			$gel -> set('Error_Description' => "Could not find gel file in Experiment directory: $fn");
 			$gel -> update();
 			next;
 		}
-		
-		
-
 		
 		#imagemagick convert - convert to grayscale and resize
 		my $x_size = $lanes * $x_pixels_per_lane;
@@ -150,6 +151,14 @@ eval
 			next;
 		}
 		
+		$sys_ret = system(qq!"$IMAGEMAGICK_DIR/convert" "$cur_gel_txt_file" -contrast-stretch 3\%x3\% "$nnn_cur_gel_txt_file"!);
+		if($sys_ret != 0)
+		{
+			$gel -> set('Error_Description' => "Error in processing gel image file. (convert (4.1) error)");
+			$gel -> update();
+			next;
+		}
+		
 		#imagemagick convert - auto-level the image
 		$sys_ret = system(qq!"$IMAGEMAGICK_DIR/convert" "$cur_gel_txt_file" -auto-level "$cur_gel_txt_file"!);
 		if($sys_ret != 0)
@@ -160,7 +169,7 @@ eval
 		}
 		
 		#call find_lane_boundaries.pl
-		$sys_ret = system(qq!"perl.exe" "../finding_lane_boundaries/find_lane_boundaries2.pl" "$cur_gel_txt_file" "$lanes"!);
+		$sys_ret = system(qq!"perl" "../finding_lane_boundaries/find_lane_boundaries2.pl" "$cur_gel_txt_file" "$lanes"!);
 		
 		#create mass cal file - read in mass cal lanes numbers and amount cal lane numbers and amount(s)
 		open(OUT, ">$experiment_dir/calibration.txt");
@@ -211,11 +220,11 @@ eval
 		else { print OUT "0\n"; }
 		
 		close(OUT);
-		# "perl.exe" "../finding_lane_boundaries/find_lane_masses.pl" "C:\Shared Projects\copurification\data_v2_0\3\Experiments\344" "gel1" "26" "calibration.txt"
+		# "perl" "../finding_lane_boundaries/find_lane_masses.pl" "C:\Shared Projects\copurification\data_v2_0\3\Experiments\344" "gel1" "26" "calibration.txt"
 		#call find_lane_masses
 		if ($first_gel)
 		{
-			system(qq!"perl.exe" "../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt"!); #fix the input parameters in this program to match here...
+			system(qq!"perl" "../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt"!); #fix the input parameters in this program to match here...
 			$first_gel = 0;
 			$alignment_gel_name = $cur_gel_img_file_root;
 			$alignment_gel_cal_lane = $mass_cal_lanes[0] -> get("Lane_Order");
@@ -223,7 +232,7 @@ eval
 		}
 		else
 		{
-			system(qq!"perl.exe" "../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt" "$alignment_gel_name" "$alignment_gel_cal_lane"!); #fix the input parameters in this program to match here...
+			system(qq!"perl" "../finding_lane_boundaries/find_lane_masses.pl" "$experiment_dir" "$cur_gel_img_file_root" "$lanes" "calibration.txt" "$alignment_gel_name" "$alignment_gel_cal_lane"!); #fix the input parameters in this program to match here...
 		}
 		
 		#gel all lanes for this gel (in order 1 to max), add bands that were found by the program:

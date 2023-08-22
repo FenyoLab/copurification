@@ -1,4 +1,6 @@
 *.pyc
-*.komodoproject
-data_v2_0/
+
+/data_v2_0
 *.db
+/.idea
+.DS_Store

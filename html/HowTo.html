@@ -2,7 +2,7 @@
 <head>
 <meta charset="utf&#45;8">
 <title>copurification.org</title>
-<link rel="stylesheet" href="../copurification-html/main.css">
+<link rel="stylesheet" href="../copurification-html/main2.css">
 </head>
 <body style="margin:10px;">
 
@@ -109,6 +109,8 @@ file listing all one hundred and four samples loaded across all four gels (see t
 files MUST match the "Gel file name" specified in the Sample Descriptions file &#45; this is how our program knows which sample descriptions go with which gel and which lanes 
 on that gel. 
 
+<br><br><i>Please Note: the above links to examples of the <b>Sample Descriptions</b> file are for illustrative purposes, but do not contain all required columns in our newest format.  
+Please refer to the instructions directly below for a full description of all required columns.  </i>
 
 <!-- FILL IN FIELDS OF SAMPLE DESCRIPTIONS FILE-->
 <br><br>
@@ -140,7 +142,7 @@ example Sample Descriptions file.
 <ul>
 <li>The following fields are mandatory for each lane: <i>Gel file name</i>, <i>Lane # on gel</i>, and <i>Total # of lanes on gel</i>.</li>
 <li>The following fields are mandatory for each lane EXCEPT those specifying a Mass Ladder or Quantity Standard:  <i>Over&#45;expressed</i>, <i>
-Protein Systematic Name</i>, <b>either</b> <i>Antibody</i> <b>or</b> <i>Other capture and Single Reactant Flag</i>.</li>
+Protein Systematic Name</i>, <b>either</b> <i>Antibody</i> <b>or</b> <i>Other capture and Single Reagent Flag</i>.</li>
 <li>Each gel must have at least one lane with an associated <i>Mass Ladder</i> column.     <i>Quantity Std</i> is optional for a gel, and
 will be ignored if a JPEG file is submitted.</li>
 <li>All fields permit 255 characters, except for notes, which permits 500 characters. </li>
@@ -202,27 +204,49 @@ Helpful links:<br>
 <a target='_blank' href='http://www.ncbi.nlm.nih.gov/gene'>http://www.ncbi.nlm.nih.gov/gene</a><br>
 <a target='_blank' href='http://www.ncbi.nlm.nih.gov/refseq'>http://www.ncbi.nlm.nih.gov/refseq</a> <br><br>
 
-<i>Tag Type</i>: if the bait is captured through an affinity tag, this entry provides for the tag to be specified. Please enter the name of the tag and any additional info, especially references (as PMID, PMCID or DOI), in parentheses. Some common tags include: LAP, GFP, FLAG, 3xFLAG, Myc, SpA (based on wt Protein A), TAP, ZZ (tandem synthetic Protein&#45;A&#45;based Z&#45;domains), 3xHIS (and various other multiple), etc. and so on.
+<i>Tag Type</i>: if the bait is captured through an affinity tag, this entry provides for the tag to be specified. Please enter the name of the tag and any additional info, 
+especially references (as PMID, PMCID or DOI), in parentheses. Some common tags include: LAP, GFP, FLAG, 3xFLAG, Myc, 
+SpA (based on wt Protein A), TAP, ZZ (tandem synthetic Protein&#45;A&#45;based Z&#45;domains), 3xHIS (and various other multiple), etc. and so on.
 <br><br>
 <i>Tag Location</i>: if the bait is tagged, this specifies where. Acceptable answers are N&#45;term, C&#45;term, and Internal. Required if Tag Type is specified.
 <br><br>
-<i>Antibody</i>: specifies the antibody reagent used to capture the bait protein, either directly or through an appended affinity tag. Provide a short description of the reagent &#45; such as Rabbit IgG (which might be use for purifying a Protein&#45;A&#45;tagged protein) or polyclonal llama anti&#45;GFP, or anti&#45;FLAG M2. In parentheses please provide a manufacturer and product number if purchased commercially, and or an appropriate reference for the reagent. 
+<i>Antibody</i>: specifies the antibody reagent used to capture the bait protein, either directly or through an appended affinity tag. Provide a short description of the reagent &#45; such 
+as Rabbit IgG (which might be use for purifying a Protein&#45;A&#45;tagged protein) or polyclonal llama anti&#45;GFP, or anti&#45;FLAG M2. In parentheses please provide a manufacturer and 
+product number if purchased commercially, and or an appropriate reference for the reagent. 
 <br><br>
-<i>Other Capture</i>: if the affinity reagent used was not an antibody, or if multiple affinity steps were utilized (e.g. including a second reagent, antibody or not, such as in tandem affinity purification), then the reagent used may be specified here. Follow the conventions used above.
+<i>Other Capture</i>: if the affinity reagent used was not an antibody, or if multiple affinity steps were utilized (e.g. including a second reagent, antibody or not, such as in tandem 
+affinity purification), then the reagent used may be specified here. Follow the conventions used above.
 <br><br>
-<i>Notes</i>: in this section any additional details important for understanding the affinity capture may be provided. Please be judicious and succinct. Examples of info to provide might include details of the construct or expression system, capture method, etc. References are always encouraged.  
+<i>Notes</i>: in this section any additional details important for understanding the affinity capture may be provided. Please be judicious and succinct. Examples of info to provide might 
+include details of the construct or expression system, capture method, etc. References are always encouraged.  
 <br><br>
-<i>Single Reagent Flag:</i>: this field is intended to indicate whether the entire protein purification experiment was conducted using the same solution or ‘buffer;’ 
+<a name="SRF"></a><i>Single Reagent Flag:</i> this field is intended to indicate whether the entire protein purification experiment was conducted using the same solution or ‘buffer;’ 
 i.e. a single purification reagent solution. If e.g. the results in lane #2 were obtained using a solution of 20 mM HEPES pH 7.4, 200 mM NaCl, and 0.01% v/v Tween 20 
-for making the cell extract and washing the affinity resin, followed by through denaturing elution in a solution containing 2% SDS, indicate ‘yes’ in this field for lane #2. 
+for making the cell extract and washing the affinity resin up to the point of elution, indicate ‘yes’ in this field for lane #2. 
 If more than one distinctive solution was used for extraction and washing prior to the final elution, then answer ‘no’ in this field. In the case that multiple, distinctive 
-solutions were used to extract and wash a sample, then we suggest listing further details of the solutions used after extraction in the Notes section.
-
+solutions were used to extract and wash a sample, then we suggest listing further details of the solutions used after extraction in the Notes section.  <a href="./FAQ.html" target="_blank">See FAQ.</a>
+<br><br>
+<i>Elution Method:</i> ideally, elution is achieved by thorough denaturation in e.g. 2% (w/v) SDS, or natively by e.g. competitive displacement or protease cleavage in the same buffer 
+used for extraction and washing. In this field, specify “denaturing” if a solution was used that effectively disrupted the interaction of the target with the affinity medium, 
+releasing the affinity captured complexes without the aid of a competing epitope or enzymatic reaction; “native” should be specified if e.g. competitive displacement (peptide elution) 
+or protease cleavage was used to release the affinity captured complexes. <a href="./FAQ.html" target="_blank">See FAQ.</a>
+<br><br>
+<i>Elution Reagent:</i> specify the composition of the elution solution. If a peptide or enzyme was used, please provide its effective concentration and the identity of the reagent. 
+In parentheses, provide a manufacturer and product number if purchased commercially, and/or an appropriate reference for the reagent. If the native elution reagent was used in a solution 
+different from that used for protein extraction and washing, please provide the solution ingredients in brackets. <a href="./FAQ.html" target="_blank">See FAQ.</a>
+<br><br>
+<i>An example entry for a native, 3xFLAG peptide elution in a different solution than was used to extract and wash the affinity captured complexes:</i><br> 1 mg/ml 3xFLAG peptide (Millipore Sigma F4799) 
+[20 mM Tris pH 8.5, 300 mM NaCl, 0.1% v/v Tween 20]
+<br><br>
+<i>An example entry for a denaturing, LDS-based elution in a commercially available sample loading buffer:</i><br> 1.1x NuPAGE LDS sample buffer (Thermo Fisher Scientific NP0007)
 
 <!-- ADD MASS SPEC DATA TO EXPERIMENTS-->
 <br><br>
 <p align="justify"><a name="AddMSData"></a><b>HOWTO &#45; Add Protein and Mass Spectrometry Data to Experiments</b><br><br>
-Once an experiment has been added to a project, mass spectrometry data may be added to the lanes and individual bands.  To start – expand a project or subproject by clicking on the “checkbox” (the arrow which will be red it there are experiments to view) in the My Projects display list on the left of the web page.  Clicking on an experiment will display one or more gels to the right side of the web  page.  Each of these gels will have the separate photographs for each of the lanes. The lane numbers at the top are clickable and so are the bands within each of the lane photographs.  
+Once an experiment has been added to a project, mass spectrometry data may be added to the lanes and individual bands.  To start – expand a project or subproject by clicking on 
+the “checkbox” (the arrow which will be red it there are experiments to view) in the My Projects display list on the left of the web page.  Clicking on an experiment will display 
+one or more gels to the right side of the web  page.  Each of these gels will have the separate photographs for each of the lanes. The lane numbers at the top are clickable and so 
+are the bands within each of the lane photographs.  
 <br><br>
 <img src="Photo 1.png"/ >
 <br><br>
@@ -251,7 +275,7 @@ By clicking, on a green link will reveal a pop up window with two portions.  One
 
 As always, clicking the [CLOSE] button will close the window without further processing.  
 <br><br>
-<i>To Add Data to A Band</i>
+<a name="AddDataToBand"></a><i>To Add Data to A Band</i>
 <br><br>
 Clicking on a band (the cursor becomes a cross hair when over a band) will display a pop up window for entering Mass Spec data for that band.
 <br><br>

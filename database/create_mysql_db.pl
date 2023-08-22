@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!c:/Perl64/bin/perl.exe
 
 #    create_my_sql_db.pl - creates the MySQL database for copurification.org.
 #    reads from 4 text files which should be in the same directory as this file (these contain the Reagent values)
@@ -18,7 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #	 
-#	 Single Reactant Flag and Mass Spectroscopy Updates
+#	 Single Reagent Flag and Mass Spectroscopy Updates
 #	 by Bart Aromando  03-03-2016
 #
 #	 Added columns to lane table and band_protein table
@@ -195,6 +195,7 @@ if($new_tables)
 		File_Type VARCHAR(255) NOT NULL,
 		Num_Lanes TINYINT NOT NULL,
 		Public BOOL NOT NULL DEFAULT 0,
+		Citation VARCHAR(255),
 		Error_Description VARCHAR(255),
 		Display_Name VARCHAR(255),
 		Date_Submitted TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -224,7 +225,7 @@ if($new_tables)
 		PRIMARY KEY (Name))!);
 		
 	#Lane Table - Ladder_Id is a foreign key and if Ladder is deleted, foreign key in this table will be set to NULL, Lane will not be deleted
-	#Updated 03-03-2016 for the Single Reactant Flag and Mass Spectroscopy update
+	#Updated 03-03-2016 for the Single Reagent Flag and Mass Spectroscopy update
 	#Updated 08-10-2016 aded MS_File_Suffix
 	#by Bart Aromando
 	$result = $dbh -> do(qq!
@@ -251,6 +252,8 @@ if($new_tables)
 		Single_Reagent_Flag TINYINT(1),
 		MS_Search_Engine VARCHAR(32),
 		MS_File_Suffix VARCHAR(10),
+		Elution_Method VARCHAR(32),
+		Elution_Reagent VARCHAR(255),
 		PRIMARY KEY (Id),
 		FOREIGN KEY (Gel_Id) REFERENCES Gel(Id) ON DELETE CASCADE,
 		FOREIGN KEY (Ladder_Id) REFERENCES Ladder(Id) ON DELETE SET NULL,
@@ -269,6 +272,7 @@ if($new_tables)
 		Mass_Error DECIMAL(10,2),
 		Quantity_Error DECIMAL(10,2),
 		Captured_Protein BOOL NOT NULL DEFAULT 0,
+		Used_for_Protein_ID BOOL,
 		PRIMARY KEY (Id),
 		FOREIGN KEY (Lane_Id) REFERENCES Lane(Id) ON DELETE CASCADE)!);
 	

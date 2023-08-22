@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe 
+#!c:/perl/bin/perl.exe
 
 #    find_lane_masses.pl - Finds the masses/amounts of the bands in the lanes given a gel image file name 
 #    uses mass/amount calibration data from the input calibration file
@@ -8,7 +8,7 @@
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation, either version 3 of the License, or
-#    (at your option) any later version.
+#    (at your option) any later version.lane_peaks_info
 #
 #    This program is distributed in the hope that it will be useful,
 #    but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -56,8 +56,11 @@
 use lib "../lib";
 
 use strict;
+use warnings;
+use diagnostics;
 use Biochemists_Dream::Common;
 use File::Copy;
+
 sub numerically { $a <=> $b; }
 sub numericallydesc { $b <=> $a; }
 #open settings file and read in settings (imagemagick directory):
@@ -84,6 +87,10 @@ my $MIN_SUM_RAW = 0; #50;
 my $CUTOFF_SUM_PERCENT = 0.01;
 my $CUTOFF_RAW = 0; #7;
 
+# whether to contrast stretch before peak finding - needed if ladder lane is not found correctly during peak finding
+# empty string - no contrast stretch; 'n' = 1x cs, 'nn' == 2x cs (uses cs lane images cut out by find_lane_boundaries2)
+my $CS_AMT = '';
+ 
 my $END_BAND_PERCENT = 0.25;
 my $MIN_BAND_SEP_PIXELS =  1;
 
@@ -99,6 +106,9 @@ $gel_image_filename_root = "$ARGV[1]";
 $lanes = "$ARGV[2]";
 $calibration_filename = "$ARGV[3]";
 
+open(LOG, ">$gel_directory/$gel_image_filename_root.find_lane_masses.log.txt") || die "Could not open log file ($gel_directory/$gel_image_filename_root.find_lane_masses.log.txt).\n";
+print LOG "begin find lane masses\n";
+
 my $alignment_gel;
 my $cal_lane_alignment_gel;
 my $do_alignment = 0;
@@ -109,6 +119,10 @@ if ($#ARGV > 3)
 	$cal_lane_alignment_gel = $ARGV[5];
 }
 
+#####
+system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.tif" -contrast-stretch 1\%x1\% "$gel_directory/$gel_image_filename_root.n.tif"!);
+#####
+	
 #read in the calibration information:
 open(IN, "$gel_directory/$calibration_filename") || die "Error: Could not open calibration text file: '$gel_directory/$calibration_filename'.\n"; 
 
@@ -151,26 +165,26 @@ for(my $i = 0; $i < $num_amt_calibration_lanes && $line =~ s/^([0-9\.]+)\s*//; $
 close(IN);
 
 ###########################################################################################################
-print "num_calibration_lanes: $num_calibration_lanes\n";
-print "calibration_lane_nums: ";
-for(my $i = 0; $i < $num_calibration_lanes; $i++) { print "$calibration_lane_nums[$i] "; }
-print "\n";
-print "Ladder masses:\n";
+print LOG "num_calibration_lanes: $num_calibration_lanes\n";
+print LOG "calibration_lane_nums: ";
+for(my $i = 0; $i < $num_calibration_lanes; $i++) { print LOG "$calibration_lane_nums[$i] "; }
+print LOG "\n";
+print LOG "Ladder masses:\n";
 for(my $i = 0; $i < $num_calibration_lanes; $i++)
 {
-	print join ',', @{$calibration_lane_ladders[$i]};
-	print ' ';
+	print LOG join ',', @{$calibration_lane_ladders[$i]};
+	print LOG ' ';
 }
-print "\n";
-print "num_amt_calibration_lanes: $num_amt_calibration_lanes\n";
-print "amt_calibration_lane_nums: ";
-for(my $i = 0; $i < $num_amt_calibration_lanes; $i++) { print "$amt_calibration_lane_nums[$i] "; }
-print "\ncalibration_lane_amounts: ";
-for(my $i = 0; $i < $num_amt_calibration_lanes; $i++) { print "$calibration_lane_amts[$i] "; }
-print "\n";
-print "\ncalibration_lane_masses: ";
-for(my $i = 0; $i < $num_amt_calibration_lanes; $i++) { print "$calibration_lane_masses[$i] "; }
-print "\n";
+print LOG "\n";
+print LOG "num_amt_calibration_lanes: $num_amt_calibration_lanes\n";
+print LOG "amt_calibration_lane_nums: ";
+for(my $i = 0; $i < $num_amt_calibration_lanes; $i++) { print LOG "$amt_calibration_lane_nums[$i] "; }
+print LOG "\ncalibration_lane_amounts: ";
+for(my $i = 0; $i < $num_amt_calibration_lanes; $i++) { print LOG "$calibration_lane_amts[$i] "; }
+print LOG "\n";
+print LOG "\ncalibration_lane_masses: ";
+for(my $i = 0; $i < $num_amt_calibration_lanes; $i++) { print LOG "$calibration_lane_masses[$i] "; }
+print LOG "\n";
 ###########################################################################################################
 
 #sort ladders for use in calibration functions
@@ -183,11 +197,49 @@ for(my $i = 0; $i < $num_calibration_lanes; $i++)
 my @lane_peaks; #2 d array, each pos. contains the set of "peaks" found for that lane
 my @lane_peaks_info;
 my @cal_lane_peaks_sorted; #2 d array, each pos. contains the set of sorted "peaks" found for the calibration lane (lane number is the lane number in the 
-			   #corresponding position in the @calibration_lane_nums array
+						   #corresponding position in the @calibration_lane_nums array
 			   
 #set peak finding parameters using 1st ladder lane
+my $num_ladder_bands = $#{$calibration_lane_ladders[0]}+1;
 get_lane_peaks($calibration_lane_nums[0]);
-set_peak_params_using_ladder(0);
+my $mult=1.0;
+set_peak_params_manually(0,$mult);
+get_lane_peaks($calibration_lane_nums[0]);
+my $num_cal_peaks = calc_mass_calibration_data(0);
+while($num_cal_peaks < $num_ladder_bands and $mult > 0)
+{
+	print LOG "Note: reducing peak params multiplier ($mult), since not enough peaks for ladder lane found ($num_cal_peaks < $num_ladder_bands).\n";
+	$mult = $mult-0.10;
+	set_peak_params_manually(0,$mult);
+	
+	get_lane_peaks($calibration_lane_nums[0]);
+	$num_cal_peaks = calc_mass_calibration_data(0);
+}
+
+##### Another way to make sure ladder bands are detected - not used - above turned out to be enough - but leaving here in case need to use in the future #####
+# this will contrast stretch until it can find the ladder bands #
+# if($num_cal_peaks < $num_ladder_bands)
+# {	
+	# print LOG "Note: applying contrast-stretch 1, since not enough peaks for ladder lane found ($num_cal_peaks < $num_ladder_bands).\n";
+	# $CS_AMT = 'n.';
+	# get_lane_peaks($calibration_lane_nums[0]);
+	# $num_cal_peaks = calc_mass_calibration_data(0);
+	
+	# if($num_cal_peaks < $num_ladder_bands)
+	# {
+		# print LOG "Note: applying contrast-stretch 2, since not enough peaks for ladder lane found ($num_cal_peaks < $num_ladder_bands).\n";
+		# $CS_AMT = 'nn.';
+		# get_lane_peaks($calibration_lane_nums[0]);
+		# $num_cal_peaks = calc_mass_calibration_data(0);
+		# if($num_cal_peaks < $num_ladder_bands)
+		# {
+			# print LOG "Error: not enough peaks found for ladder lane after 2 contrast stretches ($num_cal_peaks < $num_ladder_bands).\n";
+		# }
+	# }
+	# set_peak_params_using_ladder(0);
+# }
+# else { print LOG "Note: no contrast stretch applied ($num_cal_peaks == $num_ladder_bands).\n"; }
+######
 
 for(my $i = 1; $i <= $lanes; $i++)
 {
@@ -277,9 +329,7 @@ if ($do_alignment)
 	
 }
 
-
-
-
+close (LOG);
 ########### subroutines #####################################################################################################################
 
 sub calculate_amount_calibration_data
@@ -340,19 +390,34 @@ sub calculate_amount_calibration_data
 			}
 		}
 		
-		
 		close(IN);
 		
-		print "amt_cal_lane_largest_sum_mass ($lane_num) = $amt_cal_lane_mass[$array_pos]\n";
-		print "amt_cal_lane_largest_sum ($lane_num) = $amt_cal_lane_sum[$array_pos]\n";	
+		print LOG "amt_cal_lane_largest_sum_mass ($lane_num) = $amt_cal_lane_mass[$array_pos]\n";
+		print LOG "amt_cal_lane_largest_sum ($lane_num) = $amt_cal_lane_sum[$array_pos]\n";	
 	}
 	else
 	{
-		print "Error: Could not open file: '$gel_directory/$gel_image_filename_root.lane-middle_cen_cal.$lane_num.txt'.\n";
+		print LOG "Error: Could not open file: '$gel_directory/$gel_image_filename_root.lane-middle_cen_cal.$lane_num.txt'.\n";
 		return 0;
 	}	
 }
 
+sub set_peak_params_manually
+{
+	my $cal_lane_i = shift;
+	my $cutoff_multiplier = shift;
+	
+	my $lane_num = $calibration_lane_nums[$cal_lane_i];
+	
+	#get biggest peak - use it to set peak finding params
+	$MIN_SUM_RAW = $lane_peaks_info[$lane_num][0][2] / 5; 
+	$CUTOFF_RAW = $lane_peaks_info[$lane_num][0][1] / 12; 
+	
+	$CUTOFF_RAW = $CUTOFF_RAW * $cutoff_multiplier;
+	$MIN_SUM_RAW = $MIN_SUM_RAW * $cutoff_multiplier;
+}
+
+##### OLD - BAD #####
 sub set_peak_params_using_ladder
 {#try this with gel1 - see what these values come out to be - we know what the correct values should be...
 	my $lane_num = $calibration_lane_nums[0];
@@ -395,6 +460,74 @@ sub set_peak_params_using_ladder
 	}
 }
 
+sub find_max_intensity_x
+{
+	my $lane_num = shift;
+	my $lane_width = shift;
+	my $lane_height = shift;
+	my $window_size = shift;
+	
+	#collapse the y values to get an average intensity for each x point
+	my $geometry = $lane_width;
+	$geometry .= "x1";
+	$geometry .= "\!";
+	system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.txt" -scale $geometry "$gel_directory/$gel_image_filename_root.lane.$lane_num.x.txt"!);
+	
+	if(!open(IN, "$gel_directory/$gel_image_filename_root.lane.$lane_num.x.txt"))
+	{
+		print LOG "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.$lane_num.x.txt'.\n"; 
+		return 0;
+	}
+	
+	my $line=<IN>;
+	my $max_sum=0;
+	my $max_pos=0;
+	my @intensity_array=();
+	if ($line =~ /^# ImageMagick pixel enumeration: $lane_width,1,([0-9]+),\w+/)
+	{
+		my $max_intensity=$1;
+		
+		#read in the intensity information - smooth the data
+		while($line=<IN>)
+		{
+			if ($line=~/^([0-9]+)\,0\:\s*\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/ ||
+			    $line=~/^([0-9]+)\,0\:\s*\(\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\,\s*([0-9]+)\s*\)/)
+			{
+				my $k=$1;
+				my $cur_intensity=$max_intensity-($2+$3+$4)/3; #average rgb values and subtract from max to reverse so black is highest (not white)
+				$intensity_array[$k]=$cur_intensity;
+			}
+			else
+			{
+				print LOG "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
+			}
+		}
+		
+		#try cumulative sum over sliding window - maybe this max will work
+		for(my $pos_i=0; $pos_i<=($lane_width-$window_size); $pos_i++)
+		{
+			my $cur_sum=0;
+			for(my $j=$pos_i; $j<($pos_i+$window_size); $j++)
+			{
+				$cur_sum += $intensity_array[$j]
+			}
+			if($cur_sum > $max_sum)
+			{
+				$max_sum = $cur_sum;
+				$max_pos = $pos_i;
+			}
+		}
+	}
+	else
+	{
+		print LOG "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
+	}
+	
+	print LOG "Gel $gel_image_filename_root.$lane_num.x.txt: max intensity x pos = $max_pos, window=$window_size\n";
+	return $max_pos;
+	
+}
+
 sub get_lane_peaks
 {#get the lane peaks for the lane number given in the argument to the function, and stores it in a file
 
@@ -408,7 +541,7 @@ sub get_lane_peaks
 	
 	if(!open(IN, "$gel_directory/$gel_image_filename_root.lane.$lane_num.txt"))
 	{
-		print "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
+		print LOG "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
 		return 0;
 	}
 	
@@ -421,32 +554,44 @@ sub get_lane_peaks
 	}
 	else 
 	{ 
-		print "Error: Could not read width/height from lane txt file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
+		print LOG "Error: Could not read width/height from lane txt file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
 		close(IN);
 		return 0;
 	}
 	close(IN);
-	my $percent = 0.10;
-	my $offset = $width*$percent; $offset =~ s/\..*$//;
-	my $geometry = $width/2; $geometry =~s /\..*$//;
+	
+	my $percent = 0.25; #0.40;  # for gel 1, 25 works.  30 does not work.
+	my $offset = $width*$percent; 
+	$offset =~ s/\..*$//;
+	my $x_pos = find_max_intensity_x($lane_num, $width, $height, $width-(2*$offset));
+	
+	my $geometry = $width-(2*$offset); 
+	$geometry =~s /\..*$//;
 	$geometry .= "x";
 	$geometry .= "$height";
 	$geometry .= "+";
-	$geometry .= "$offset";
+	
+	$geometry .= "$x_pos";
+	#$geometry .= "$offset";
+	
 	$geometry .= "+0";
 	
-	system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.png" -crop $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.png"!);
-	#system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.png" "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.png"!);
+	#system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.png" -crop $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.png"!);
+	#system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.n.png" -crop $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.n.png"!);
+	
+	system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.! . $CS_AMT . qq!png" -crop $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.! . $CS_AMT . qq!png"!);
+	#print LOG qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane.$lane_num.! . $CS_AMT . qq!png" -crop $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.! . $CS_AMT . qq!png"!;
 	
 	#collapse the x values to get an average intensity for each y point
 	$geometry = "1x";
 	$geometry .= "$height";
 	$geometry .= "\!";
-	system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.png" -scale $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.txt"!);
+	system(qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.! . $CS_AMT . qq!png" -scale $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.! . $CS_AMT . qq!txt"!);
+	#print LOG qq!"$IMAGEMAGICK_DIR/convert" "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.! . $CS_AMT . qq!png" -scale $geometry "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.! . $CS_AMT . qq!txt"!;
 	
-	if(!open(IN, "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.txt"))
+	if(!open(IN, "$gel_directory/$gel_image_filename_root.lane-middle.$lane_num." . $CS_AMT . "txt"))
 	{
-		print "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane-middle.$lane_num.txt'.\n"; 
+		print LOG "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane-middle.$lane_num." . $CS_AMT . "txt'.\n"; 
 		return 0;
 	}
 	
@@ -474,7 +619,7 @@ sub get_lane_peaks
 			}
 			else
 			{
-				print "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
+				print LOG "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
 			}
 		}
 		
@@ -527,7 +672,7 @@ sub get_lane_peaks
 		# sum intensity values of whole lane, over each y-value
 		if(!open(IN_SUM, "$gel_directory/$gel_image_filename_root.lane.$lane_num.txt"))
 		{
-			print "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
+			print LOG "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
 			return 0;
 		}
 		my @gel;
@@ -548,11 +693,12 @@ sub get_lane_peaks
 				}
 				else
 				{
-					print "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
+					print LOG "Gel $gel_image_filename_root, Lane $lane_num - error in line: $line\n";
 				}
 			}
 		}
 		close(IN_SUM);
+		
 		#sum intensity over all x's for each y, subtracting noise calculated above (y_)
 		my @y_lane_sum;
 		for(my $y_val = 0; $y_val < $height; $y_val++)
@@ -560,12 +706,21 @@ sub get_lane_peaks
 			$y_lane_sum[$y_val] = 0;
 			for(my $i = 0; $i < $width; $i++)
 			{
-				my $diff = $gel[$i][$y_val] - $y_[$y_val];
-				if ($diff > 0)
+				# *** removed subtraction of noise, since it is calculated from the contrast-stretched lane image ****
+				# TODO: get a noise value for the non-constrast-stretched lane image, instead
+				#my $diff = $gel[$i][$y_val] - $y_[$y_val];
+				#if ($diff > 0) { $y_lane_sum[$y_val] += $diff; }
+				
+				if($CS_AMT eq '')
 				{
-					$y_lane_sum[$y_val] += $diff;
-					
+					my $diff = $gel[$i][$y_val] - $y_[$y_val];
+					if ($diff > 0) { $y_lane_sum[$y_val] += $diff; }
 				}
+				else
+				{
+					$y_lane_sum[$y_val] += $gel[$i][$y_val];
+				}
+				
 			}
 		}
 		############################################
@@ -589,7 +744,7 @@ sub get_lane_peaks
 				}
 				$to_sort[$k]=qq!$sum[$k]#$k!;
 			}
-			my @sorted = sort numericallydesc @to_sort;
+			my @sorted = sort numericallydesc @to_sort; # TODO sort is throwing a warning since we have the # at the end...!  figure out/fix!
 			my @done=();
 			my $peaks_count = 0;
 			
@@ -669,8 +824,10 @@ sub get_lane_peaks
 							{
 							## END NEW PART	  #$m>=0
 								
-								for(my $m=$k;$m>=0 && ($y__[$m]>$END_BAND_PERCENT*$y__[$k] && ($m == 0 || $y__[$m]>=$y__[$m-1]));$m--) { $k_min=$m; }
-								for(my $m=$k;$m<=($height-1) && ($y__[$m]>$END_BAND_PERCENT*$y__[$k] && ($m == ($height-1) || $y__[$m]>=$y__[$m+1]));$m++) { $k_max=$m; }
+								for(my $m=$k;$m>=0 && ($y__[$m]>$END_BAND_PERCENT*$y__[$k] && ($m == 0 || $y__[$m]>=$y__[$m-1]));$m--) 
+								{ $k_min=$m; }
+								for(my $m=$k;$m<=($height-1) && ($y__[$m]>$END_BAND_PERCENT*$y__[$k] && ($m == ($height-1) || $y__[$m]>=$y__[$m+1]));$m++) 
+								{ $k_max=$m; }
 									  #$m<$height						     
 								
 								if (($k_max - $k_min)+1 >= 3)
@@ -684,10 +841,14 @@ sub get_lane_peaks
 										#for(my $m=$k-2*($k-$k_min);$m<=$k+2*($k_max-$k);$m++) { if ($m>=0) { $done[$m]=1; } }
 										for(my $m=$k_min-$MIN_BAND_SEP_PIXELS;$m<=$k_max+$MIN_BAND_SEP_PIXELS;$m++) { if ($m>=0) { $done[$m]=1; } }
 										$cen[$k]/=$sum[$k];
+										
 										$lane_peaks[$lane_num][$peaks_count] = $cen[$k];
 										$lane_peaks_info[$lane_num][$peaks_count] = [$k, $y__[$k], $sum[$k]];
+										
 										#print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$sum[$k]\t$max[$k]\n!;
-										print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$amount_sum\t$max[$k]\n!; #
+										#print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$amount_sum\t$max[$k]\n!; 
+										print OUT qq!$k\t$k_min\t$k_max\t$lane_peaks[$lane_num][$peaks_count]\t$amount_sum\t0\n!; 
+										
 										$peaks_count++;
 										$ll++;
 									}
@@ -700,20 +861,90 @@ sub get_lane_peaks
 			close(OUT);
 		}
 	}
-	else { print qq!Error parsing $gel_directory/$gel_image_filename_root.lane-middle.$lane_num.txt: $line\n!; }
+	else { print LOG qq!Error parsing $gel_directory/$gel_image_filename_root.lane-middle.$lane_num.txt: $line\n!; }
 	close(IN);
 }
 
-sub calc_mass_calibration_data 
-{#compares the ladder information to the intensity information for given calibration lane (arg 1)
+# sub calc_mass_calibration_data 
+# {#compares the ladder information to the intensity information for given calibration lane (arg 1)
+	# my $cal_array_pos = shift;
+	# my $lane_num = $calibration_lane_nums[$cal_array_pos];
+	
+	# my @ladder_sorted = @{$calibration_lane_sorted_ladders[$cal_array_pos]};
+	
+	# #match up ladder masses to peaks
+	# my @calpeaks;
+	# for(my $i = 0; $i <= $#ladder_sorted && $i <= $#{$lane_peaks[$lane_num]}; $i++) 
+	# { 
+		
+		# $calpeaks[$cal_i] = $lane_peaks[$lane_num][$i];
+			
+	# }
+	# my @calpeaks_sorted = sort numerically @calpeaks;
+	# for(my $i = 0; $i < scalar(@calpeaks_sorted); $i++) 
+	# { 
+		# $cal_lane_peaks_sorted[$cal_array_pos][$i] = $calpeaks_sorted[$i]; 
+	# }
+	# my $peaks_count = $#{$cal_lane_peaks_sorted[$cal_array_pos]}+1;
+	
+	# #print ladder masses/peaks to file
+	# if (open(OUT,">$gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt"))
+	# {
+		# print OUT qq!mass\tpixel\n!;
+		# for(my $l=0;$l<$peaks_count;$l++)
+		# {
+			# print OUT qq!$ladder_sorted[$l]\t$cal_lane_peaks_sorted[$cal_array_pos][$l]\n!;
+		# }
+		# close(OUT);
+	# }
+	# else { print LOG qq!Error opening file $gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt.\n!; }
+	
+# }
+
+sub calc_mass_calibration_data
+{
 	my $cal_array_pos = shift;
 	my $lane_num = $calibration_lane_nums[$cal_array_pos];
 	
 	my @ladder_sorted = @{$calibration_lane_sorted_ladders[$cal_array_pos]};
 	
-	#match up ladder masses to peaks
+	#open the lane file and extract the height of the lane
+	if(!open(IN, "$gel_directory/$gel_image_filename_root.lane.$lane_num.txt"))
+	{
+		print LOG "Error: Could not open lane text file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
+		return 0;
+	}
+	
+	my $line = <IN>;
+	my $width; my $height;
+	if($line =~ /^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),\w+/)
+	{
+		$width = $1;
+		$height = $2;
+	}
+	else 
+	{ 
+		print LOG "Error: Could not read width/height from lane txt file: '$gel_directory/$gel_image_filename_root.lane.$lane_num.txt'.\n"; 
+		close(IN);
+		return 0;
+	}
+	close(IN);
+	
 	my @calpeaks;
-	for(my $i = 0; $i <= $#ladder_sorted && $i <= $#{$lane_peaks[$lane_num]}; $i++) { $calpeaks[$i] = $lane_peaks[$lane_num][$i]; }
+	
+	my @cur_lane_peaks = sort numerically @{$lane_peaks[$lane_num]};
+	my $cal_i=0;
+	my $min_diff = (10/300)*$height; # 3% of 300 pixels - 10 pixels or more separation from the previous marker lane or its not a marker lane
+	
+	for(my $i = 0; $cal_i <= $#ladder_sorted && $i <= $#cur_lane_peaks; $i++) 
+	{ 
+		if(($i==0) or (abs($cur_lane_peaks[$i] - $cur_lane_peaks[$i-1]) >= $min_diff))
+		{ # TODO: instead of using first peak encountered, use the one that has a darker band!
+			$calpeaks[$cal_i] = $cur_lane_peaks[$i];
+			$cal_i++;
+		}
+	}
+	
 	my @calpeaks_sorted = sort numerically @calpeaks;
 	for(my $i = 0; $i < scalar(@calpeaks_sorted); $i++) { $cal_lane_peaks_sorted[$cal_array_pos][$i] = $calpeaks_sorted[$i]; }
 	my $peaks_count = $#{$cal_lane_peaks_sorted[$cal_array_pos]}+1;
@@ -728,8 +959,9 @@ sub calc_mass_calibration_data
 		}
 		close(OUT);
 	}
-	else { print qq!Error opening file $gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt.\n!; }
+	else { print LOG qq!Error opening file $gel_directory/$gel_image_filename_root.lane-mass-cal.$lane_num.txt.\n!; }
 	
+	return $peaks_count;
 }
 			  
 sub calibrate_amount
@@ -769,10 +1001,10 @@ sub calibrate_amount
 				close(OUT);
 				seek IN, 0, 0; 
 			}
-			else { print qq!Error opening file: $outfile_name.\n!; }
+			else { print LOG qq!Error opening file: $outfile_name.\n!; }
 		}
 		close(IN);
-	} else { print qq!Error reading file: $infile_name.\n!; }
+	} else { print LOG qq!Error reading file: $infile_name.\n!; }
 }
 
 sub calibrate_mass
@@ -837,9 +1069,9 @@ sub calibrate_mass
 					}
 				}
 				close(OUT);
-			} else { print qq!Error opening file: $outfile_name.\n!; }
+			} else { print LOG qq!Error opening file: $outfile_name.\n!; }
 			close(IN);
-		} else { print qq!Error reading file: $gel_directory/$gel_image_filename_root.lane-middle_cen.$lane_num.txt.\n!; }
+		} else { print LOG qq!Error reading file: $gel_directory/$gel_image_filename_root.lane-middle_cen.$lane_num.txt.\n!; }
 	}
 }
 
@@ -888,7 +1120,7 @@ sub average_calibrated_amounts
 					
 			}
 			close(IN);
-		} else { print qq!Error reading file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal_sum_cal.cal-lane-$cal_lane_num.$lane_num.txt.\n!; }	
+		} else { print LOG qq!Error reading file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal_sum_cal.cal-lane-$cal_lane_num.$lane_num.txt.\n!; }	
 	}
 	
 	#average lane amounts, compute error -> the biggest difference if > 2 cal lanes?
@@ -917,7 +1149,7 @@ sub average_calibrated_amounts
 		}
 		close(OUT);
 	}
-	else { print qq!Error opening file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal_sum_cal.$lane_num.txt.\n!; }	
+	else { print LOG qq!Error opening file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal_sum_cal.$lane_num.txt.\n!; }	
 }
 
 sub average_calibrated_mass
@@ -954,7 +1186,7 @@ sub average_calibrated_mass
 				}
 			}
 			close(IN);
-		} else { print qq!Error reading file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal.cal-lane-$cal_lane_num.$lane_num.txt.\n!; }	
+		} else { print LOG qq!Error reading file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal.cal-lane-$cal_lane_num.$lane_num.txt.\n!; }	
 	}
 	
 	#average lane masses, compute error -> the biggest difference if > 2 cal lanes?
@@ -983,7 +1215,7 @@ sub average_calibrated_mass
 		}
 		close(OUT);
 	}
-	else { print qq!Error opening file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal.$lane_num.txt.\n!; }	
+	else { print LOG qq!Error opening file: $gel_directory/$gel_image_filename_root.lane-middle_cen_cal.$lane_num.txt.\n!; }	
 }
 
 sub calculate_lane_alignment_pixels

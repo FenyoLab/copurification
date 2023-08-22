@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe 
+#!/usr/bin/perl
 
 #    (Biochemists_Dream::GelDataFileReader) GelDataFileReader.pm - reads the tab-delimited 'Sample Descriptions' file
 #
@@ -20,7 +20,7 @@
 use lib "../";
 
 use strict;
-use warnings;
+#use warnings;
 
 package Biochemists_Dream::GelDataFileReader;
 #reads in a gel data file, validates the data and sets error messages
@@ -42,9 +42,9 @@ our $VERSION = 1.00;
 our @ISA = qw(Exporter);
 
 # Functions and variables which are exported by default
-our @EXPORT = qw(read_file read_gel reset_gels read_lane reset_lanes get_gel_file_name gel_gel_file_name_orig get_num_lanes get_lane_index
+our @EXPORT = qw(read_file read_gel reset_gels read_lane reset_lanes get_gel_file_name get_gel_file_name_orig get_num_lanes get_lane_index
 		get_mass_ladder get_qty_std_data get_ph get_protein_sys_name get_protein_common_name get_protein_id_in_db
-		get_protein_db_id_in_db get_over_expressed get_tag_location get_tag_type get_antibody get_other_capture
+		get_protein_db_id_in_db get_over_expressed get_tag_location get_tag_type get_antibody get_other_capture get_elution_method get_elution_reagent
 		get_notes get_single_reagent_flag get_salts get_buffers get_detergents get_other_reagents $data_file_name $num_gels @read_error_message);
 
 # Functions and variables which can be optionally exported
@@ -82,6 +82,7 @@ our %allowed_column_names = ("gel file name" => "1", "lane # on gel" => "1", "to
 			     "mass ladder" => "1", "quantity std" => 1,
 			     "protein systematic name" => "1", "tag location" => "1", "over-expressed" => "1", 
 			     "tag type" => "1", "antibody" => "1",  "other capture" => "1", "notes" => "1", "single reagent flag" => "1",
+			     "elution method" => 1, "elution reagent" => 1,
 			     "salt" => "1", "salt concentration" => "1", "salt unit" => "1",
 			     "detergent" => "1", "detergent concentration" => "1", "detergent unit" => "1",
 			     "buffer" => "1", "buffer concentration" => "1", "buffer unit" => "1",
@@ -114,13 +115,21 @@ our @antibody;
 our @other_capture; 
 our @notes;
 our @single_reagent_flag;
+our @elution_method;
+our @elution_reagent;
 
 my @valid_lane_numbers;
 
+#if(open(DEVEL_OUT1, ">>E:\\copurification-master\\out.txt"))
+#{
+#	my $now_string = localtime;
+#	print DEVEL_OUT1 "Log opened: $now_string\n";
+#}
+		
 my %ORDERED_COLUMNS = ("salt" => 1, "buffer" => 1, "detergent" => 1, "other" => 1);
 my %SINGLE_COLUMNS = ("gel file name" => 1, "lane # on gel" => 1, "total # of lanes on gel" => 1, "ph" => 1, "mass ladder" => "1", "quantity std" => "1", 
 		      "protein systematic name" => 1, "tag location" => 1, "over-expressed" => 1, "tag type" => 1,
-		      "antibody" => 1, "other capture" => 1, "notes" => 1, "single reagent flag" => 1);
+		      "antibody" => 1, "other capture" => 1, "notes" => 1, "single reagent flag" => 1, "elution method" => 1, "elution reagent" => 1);
 my @MANDATORY_COLUMNS_IN_HEADER = ("gel file name", "lane # on gel", "total # of lanes on gel", "mass ladder", "quantity std", "over-expressed", "protein systematic name", "single reagent flag");
 my %VALIDATION_COLS_TABLES = ('tag location' => 'Tag_Locations');
 my %MANDATORY_COLUMNS_IN_DATA = ("gel file name" => 1, "lane # on gel" => 1, "over-expressed" => 1, "protein systematic name" => 1, "single reagent flag" => 1);
@@ -151,7 +160,8 @@ sub read_file
 		my $header = "";
 		while($header eq "")
 		{
-			if($header = <GELIN>)
+			$header = <GELIN>;
+			if(defined($header) && $header)
 			{
 				chomp($header);
 				$header =~ s/^\s+//;
@@ -262,6 +272,11 @@ sub read_file
 		load_validation_tables_from_db();
 	
 		#read in data for gels/lanes and fill the variables
+		my %proteins_found_db_id_in_db;
+		my %proteins_found_id_in_db;
+		my %proteins_found_common_name;
+		my %proteins_found_name;
+		my %proteins_found_invalid;
 		my $line = "";
 		my @cur_values;
 		my $gel_num = 0;
@@ -499,21 +514,61 @@ sub read_file
 				$cur_value = uc $cur_value;
 				$cur_value =~ s/^\s+//; $cur_value =~ s/\s+$//;
 				
-				my $ret; my $id_in_db; my $common_name;
-				if(!($ret = validate_protein_name($cur_value, $id_in_db, $common_name)))
-				{#name is not valid, can't be verified 
+				if (defined $proteins_found_id_in_db{$cur_value} || defined $proteins_found_db_id_in_db{$cur_value}) 
+				{
+					if (defined $proteins_found_id_in_db{$cur_value})
+					{
+						$protein_id_in_db[$cur_gel_num][$cur_lane_num]=$proteins_found_id_in_db{$cur_value};
+						$protein_name[$cur_gel_num][$cur_lane_num] = $proteins_found_name{$cur_value};
+					}
+					elsif (defined $proteins_found_db_id_in_db{$cur_value})
+					{
+						$protein_db_id_in_db[$cur_gel_num][$cur_lane_num] = $proteins_found_db_id_in_db{$cur_value};
+						$protein_name[$cur_gel_num][$cur_lane_num] = $proteins_found_name{$cur_value};
+						$protein_common_name[$cur_gel_num][$cur_lane_num] = $proteins_found_common_name{$cur_value};
+							
+					}
+					else
+					{# this shouldn't happen unless I made a mistake
+						push @read_error_message, "Line $line_i: Error reading 'Protein Systematic Name' details from previous entry ($cur_value).";
+					}
+                }
+				elsif(defined $proteins_found_invalid{$cur_value})
+				{
 					push @read_error_message, "Line $line_i: The column 'Protein Systematic Name' has an unrecognized value ($cur_value).";
 				}
-				elsif($ret > 0)
-				{#name is valid, and its already in the DB
-					$protein_id_in_db[$cur_gel_num][$cur_lane_num] = $id_in_db;
-					$protein_name[$cur_gel_num][$cur_lane_num] = $cur_value; 
-				}
 				else
-				{#name is valid, not already in the DB, but it was found in an online DB
-					$protein_db_id_in_db[$cur_gel_num][$cur_lane_num] = $id_in_db;
-					$protein_name[$cur_gel_num][$cur_lane_num] = $cur_value;
-					$protein_common_name[$cur_gel_num][$cur_lane_num] = $common_name;
+				{
+					my $ret; my $id_in_db; my $common_name;
+					my $orig_cur_value=$cur_value;
+					if(!($ret = validate_protein_name($cur_value, $id_in_db, $common_name)))
+					{#name is not valid, can't be verified 
+						push @read_error_message, "Line $line_i: The column 'Protein Systematic Name' has an unrecognized value ($cur_value).";
+						$proteins_found_invalid{$orig_cur_value}=1;
+					}
+					else
+					{# name is valid, store so we don't have to check each time if its the same protein for multiple lanes
+						
+	
+						if($ret > 0)
+						{#name is valid, and its already in the DB
+							$protein_id_in_db[$cur_gel_num][$cur_lane_num] = $id_in_db;
+							$protein_name[$cur_gel_num][$cur_lane_num] = $cur_value;
+							
+							$proteins_found_id_in_db{$orig_cur_value}=$id_in_db;
+							$proteins_found_name{$orig_cur_value}=$cur_value;
+						}
+						else
+						{#name is valid, not already in the DB, but it was found in an online DB
+							$protein_db_id_in_db[$cur_gel_num][$cur_lane_num] = $id_in_db;
+							$protein_name[$cur_gel_num][$cur_lane_num] = $cur_value;
+							$protein_common_name[$cur_gel_num][$cur_lane_num] = $common_name;
+							
+							$proteins_found_db_id_in_db{$orig_cur_value}=$id_in_db;
+							$proteins_found_name{$orig_cur_value}=$cur_value;
+							$proteins_found_common_name{$orig_cur_value}=$common_name;
+						}	
+					}	
 				}
 			}
 			elsif(!$calibration_lane) #error, mandatory field
@@ -636,6 +691,27 @@ sub read_file
 				{ $notes[$cur_gel_num][$cur_lane_num] = $cur_value; }
 			}
 			
+			#elution method - not mandatory
+			if(defined $columns_found{"elution method"})
+			{
+				$cur_value = $cur_values[$columns_found{"elution method"}];
+				if($cur_value)
+				{
+					if($cur_value eq "native" || $cur_value eq 'denaturing')
+					{ $elution_method[$cur_gel_num][$cur_lane_num] = $cur_value; }
+					else
+					{ push @read_error_message, "Line $line_i: 'Elution method' must be either 'native' or 'denaturing.'"; }
+				}
+			}
+			
+			#elution reagent - not mandatory
+			if(defined $columns_found{"elution reagent"})
+			{
+				$cur_value = $cur_values[$columns_found{"elution reagent"}];
+				if($cur_value)
+				{ $elution_reagent[$cur_gel_num][$cur_lane_num] = $cur_value; }
+			}
+			
 			#salt, buffer, detergent, other
 			foreach my $cur_column (keys %ORDERED_COLUMNS)
 			{
@@ -736,7 +812,7 @@ sub read_file
 			if(!$found_mass_cal) { push @read_error_message, "'Mass ladder' not found for gel $gel_file_names[$i].  Atleast one mass calibration lane is required for each gel."; }
 		}
 		
-		##########
+		##########:
 		#get the gel iteration ready so that first call to read_gel/read_lane goes to first gel/lane
 		$num_gels = $gel_num;
 		$current_gel_index = -1;
@@ -754,13 +830,21 @@ sub read_file
 	
     	close(GELIN);
 	$dbh->disconnect();
+	
+	#close(DEVEL_OUT1);
+	
 	return 1;
 }
 
 sub validate_protein_name
 {#given protein systematic name, first check local DB, then if not found go online to verify.
+
+	#open(DEV_LOG, ">>$BASE_DIR/$DATA_DIR/validator_log.txt");
+	#print DEV_LOG "TESTING\n";
 	my $name = $_[0];
+	#print DEV_LOG "getting DB list: $name, $species.\n";
 	my @dbs = Biochemists_Dream::Protein_DB -> search(Species => $species, { order_by => 'Priority' });
+	#print DEV_LOG "searching for protein in DB.\n";
 	foreach (@dbs)
 	{
 		my $db_id = $_ -> get('Id');
@@ -818,6 +902,7 @@ sub validate_protein_name
 	}
 	
 	#didn't find it in DB, go to online db's
+	#print DEV_LOG "searching for protein online.\n";
 	foreach (@dbs)
 	{
 		my $db_id = $_ -> get('Id');
@@ -826,8 +911,10 @@ sub validate_protein_name
 		#call protein validator package
 		
 		my $common_name; my $version = "";
+		#print DEV_LOG "calling Validator: $db_name, $name, $species, $common_name, $version\n";
 		if(Biochemists_Dream::ProteinNameValidator::validate($db_name, $name, $species, $common_name, $version))
 		{
+			#print DEV_LOG "FOUND: $db_name, $name, $species, $common_name, $version\n";
 			$_[1] = $db_id;
 			$_[2] = $common_name;
 			
@@ -842,6 +929,9 @@ sub validate_protein_name
 	}
 	
 	return 0; #indicates not found, error
+	#print DEV_LOG "returning from function.\n";
+
+	#close(DEV_LOG);
 }
 
 sub load_validation_tables_from_db
@@ -886,7 +976,7 @@ sub get_gel_file_name
 	return $gel_file_names[$current_gel_index];
 }
 
-sub gel_gel_file_name_orig
+sub get_gel_file_name_orig
 {
 	return $gel_file_names_orig{$gel_file_names[$current_gel_index]};
 }
@@ -962,6 +1052,16 @@ sub get_other_capture
 sub get_notes
 {
 	return $notes[$current_gel_index][$current_lane_index];
+}
+
+sub get_elution_method
+{
+	return $elution_method[$current_gel_index][$current_lane_index];
+}
+
+sub get_elution_reagent
+{
+	return $elution_reagent[$current_gel_index][$current_lane_index];
 }
 
 sub get_single_reagent_flag

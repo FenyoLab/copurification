@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!/usr/bin/perl
  
 #    calculate_lane_scores.pl - Compares lanes in gels - input params tell which lanes and which gels to compare
 #
@@ -32,9 +32,6 @@ my $USE_INTENSITY_IN_SCORE = 1;
 my $DO_IDENTITY_GROUPING = 0;
 #get directory for Image Magick from the settings file
 my $line = "";
-my %SETTINGS=(); open(IN,"../settings.txt"); while($line=<IN>) { chomp($line); if ($line=~/^([^\=]+)\=([^\=]+)$/) { $SETTINGS{$1}=$2; } } close(IN);
-
-print get_default_mass_error(1);
 
 my @gel_lanes;
 my $num_gel_lanes = 0;
@@ -45,6 +42,9 @@ my $out_file = $ARGV[1];
 #print get_mass_error(49.6, 36, 200) + get_mass_error(30.2, 36, 200);
 
 open(LOG, ">$out_directory/$out_file.log.txt") || die "Error: Could not open file: \'$out_directory/$out_directory/$out_file.log.txt\'.\n"; 
+
+my %SETTINGS=(); open(IN,"../settings.txt"); while($line=<IN>) { chomp($line); if ($line=~/^([^\=]+)\=([^\=]+)$/) { $SETTINGS{$1}=$2; } } close(IN);
+print get_default_mass_error(1);
 
 #input the gels/lanes to compare
 for(my $i = 2; $i <= $#ARGV; $i+=2)
@@ -445,8 +445,10 @@ sub calculate_lane_match_scores
 	#print "Done with matching: score = $score, lane1_int_sumsq = $lane1_int_sumsq, lane2_int_sumsq = $lane2_int_sumsq, count = $lane12_real_matches_count\n"; 
 	
 	#calculate the score:
-	
-	$score = $score / (sqrt($lane1_int_sumsq * $lane2_int_sumsq));
+	if (sqrt($lane1_int_sumsq * $lane2_int_sumsq) != 0)
+	{
+        $score = $score / (sqrt($lane1_int_sumsq * $lane2_int_sumsq));
+    }
 	
 	$gel_lane_scores[$num_gel_lane_scores][0] = 0; #unused
 	$gel_lane_scores[$num_gel_lane_scores][1] = $lane1;

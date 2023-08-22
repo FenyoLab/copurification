@@ -1,8 +1,9 @@
-INSTALL_DIR=C:\Shared Projects\copurification
-ImageMagick=C:\Program Files (x86)\ImageMagick-6.7.8-Q16
-wkhtmltopdf=C:\Program Files (x86)\wkhtmltopdf
-HOSTNAME=localhost
-DBNAME=GelDB
-DBUSER=GelDBAdmin
-USERPWD=pennylote
+*This is just an example, please adjust the below to suit your environment*
 
+INSTALL_DIR=/var/www
+ImageMagick=/usr/local/bin/
+wkhtmltopdf=/usr/bin/
+HOSTNAME=copurification.org
+DBNAME=DBI:mysql:copur:db
+DBUSER=
+USERPWD=

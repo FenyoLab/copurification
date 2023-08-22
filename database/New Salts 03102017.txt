@@ -1,0 +1,10 @@
+Name: 		tetramethylammonium acetate
+Short Name: 	4meN Acet
+Type:		Salt
+
+Name: 		Triethanolamine-Cl
+Short Name: 	3EtOHAm-Cl
+Type:		Buffer
+
+tetramethylammonium acetate	4meN Acet
+Triethanolamine-Cl     3EtOHAm-Cl

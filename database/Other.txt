@@ -20,7 +20,7 @@ Name	Short Name
 4-Butyrolactone	GBL
 6-Aminohexanoic acid	EACA
 Adenosine-5'-triphosphate disodium salt	Na2 ATP
-Antifoam B	AF B
+Antifoam B Emulsion AF B
 Benzamidine hydrochloride	Benz HCl
 Betaine Citrate	BetCit
 Betaine hydrochloride	Betaine HCl
@@ -40,6 +40,7 @@ Ethylene glycol	EG
 Ethylene imine polymer	PEI
 Ethylenediaminetetraacetic acid	EDTA
 Ethyleneglycoltetracetic acid	EGTA
+Glutaraldehyde	GlutAl
 Glycerol	Glycerol
 Glycine	Gly
 Guanidine hydrochloride	Guanidine HCl

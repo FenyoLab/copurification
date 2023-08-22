@@ -1,4 +1,4 @@
-#!c:/perl/bin/perl.exe
+#!c:/perl64/bin/perl.exe 
  
 #    find_lane_boundaries2.pl - Finds lane boundaries in the images.
 #
@@ -42,6 +42,9 @@ my $n_gel_txt_file = $gel_txt_file;
 $n_gel_txt_file =~ s/.txt$/-n.txt/;
 my $nn_gel_txt_file = $gel_txt_file;
 $nn_gel_txt_file =~ s/.txt$/-nn.txt/;
+
+my $nnn_gel_txt_file = $gel_txt_file;
+$nnn_gel_txt_file =~ s/.txt$/-nnn.txt/;
 
 #open settings file and read in settings (imagemagick directory):
 my $err = "";
@@ -94,14 +97,14 @@ for(my $x = 0; $x < $x_max; $x++)
         for(my $y = 0; $y < $y_max; $y++)
         {
             my $cur_x = $inv_slope*$y + $x; 
-	    if($cur_x < 0 || $cur_x >= $x_max) { $skipped_line = 1; last; } #if the line goes off the left or right side of image, skip that line
-	    else
-	    {
-		$cur_x = int($cur_x + .5); #round x-value
-		if($cur_x < 0 || $cur_x >= $x_max) { $skipped_line = 1; last; } #(take care of rounding up to 624)
-		else { $intensity_sum += $gel[$cur_x][$y]; }
+			if($cur_x < 0 || $cur_x >= $x_max) { $skipped_line = 1; last; } #if the line goes off the left or right side of image, skip that line
+			else
+			{
+				$cur_x = int($cur_x + .5); #round x-value
+				if($cur_x < 0 || $cur_x >= $x_max) { $skipped_line = 1; last; } #(take care of rounding up to 624)
+				else { $intensity_sum += $gel[$cur_x][$y]; }
 		
-	    }
+			}
             if(!$first_sum && $intensity_sum > $min_intensity_sum[$x]) { last; }
         }
         if(!$skipped_line && ($first_sum || $intensity_sum < $min_intensity_sum[$x]))
@@ -219,65 +222,50 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 	if(!open(IN, $gel_txt_file)) { print LOG "Could not input text file ($gel_txt_file).\n"; last; }
 	if(!open(IN_N, $n_gel_txt_file)) { print LOG "Could not input text file ($n_gel_txt_file).\n"; last; }
 	if(!open(IN_NN, $nn_gel_txt_file)) { print LOG "Could not input text file ($nn_gel_txt_file).\n"; last; }
+	if(!open(IN_NNN, $nnn_gel_txt_file)) { print LOG "Could not input text file ($nnn_gel_txt_file).\n"; last; }
+	
 	if(!open (OUT, ">$gel_image_file_root.lane.$lane_i_display.txt")) { print LOG "Could not create $gel_image_file_root.lane.$lane_i_display.txt\n"; last; }
 	if(!open (OUT_N, ">$gel_image_file_root.lane.$lane_i_display.n.txt")) { print LOG "Could not create $gel_image_file_root.lane.$lane_i_display.n.txt\n"; last; }
 	if(!open (OUT_NN, ">$gel_image_file_root.lane.$lane_i_display.nn.txt")) { print LOG "Could not create $gel_image_file_root.lane.$lane_i_display.nn.txt\n"; last; }
+	if(!open (OUT_NNN, ">$gel_image_file_root.lane.$lane_i_display.nnn.txt")) { print LOG "Could not create $gel_image_file_root.lane.$lane_i_display.nnn.txt\n"; last; }
 	
 	my $start_x = $lane_x[$lane_i][1] >= 0 ? $cur_st_lane_x1 : $cur_st_lane_x2;
 	my $end_x = $lane_x[$lane_i][3] <= 0 ? $cur_end_lane_x1 : $cur_end_lane_x2;
-	my $line_n; my $line_nn; my $type=''; my $max_intensity='';
+	my $line_n; my $line_nn; my $line_nnn; my $type=''; my $max_intensity='';
 	while ($line=<IN>)
 	{
 		if($line_n=<IN_N>)
 		{
 			if ($line_nn=<IN_NN>)
 			{
-				if($line=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/)
+				if ($line_nnn=<IN_NNN>)
 				{
-					# we will only output the current lane that we are processing to the text file
-					my $window_size = ($end_x - $start_x) + 1;
-					$max_intensity = $3;
-					$type = $4;
-					print OUT qq!# ImageMagick pixel enumeration: $window_size,$2,$max_intensity,$type\n!;
-					
-					$line_n=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/;
-					print OUT_N qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$4\n!;
-					$line_nn=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/;
-					print OUT_NN qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$4\n!;
-				}
-				elsif($line=~/^([0-9]+),([0-9]+):\s\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)[,\)]/)
-				{
-					my $x=$1;
-					my $y=$2;
-					
-					if($x >= $start_x && $x <= $end_x) 
+					if($line=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/)
 					{
-						my $x_ = $x - $start_x;
+						# we will only output the current lane that we are processing to the text file
+						my $window_size = ($end_x - $start_x) + 1;
+						$max_intensity = $3;
+						$type = $4;
+						print OUT qq!# ImageMagick pixel enumeration: $window_size,$2,$max_intensity,$type\n!;
 						
-						if ($x<=$cur_st_lane_x1+$y/$y_max*($cur_st_lane_x2-$cur_st_lane_x1)) #we are in the cutout triangle (left side)
-						#{ print OUT qq!$x_,$y:(65535,    0,    0)  #FFFF00000000  red\n!; }
+						$line_n=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/;
+						print OUT_N qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$4\n!;
+						$line_nn=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/;
+						print OUT_NN qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$4\n!;
+						
+						$line_nnn=~/^# ImageMagick pixel enumeration\: ([0-9]+),([0-9]+),([0-9]+),(s?rgb|graya?)/;
+						print OUT_NNN qq!# ImageMagick pixel enumeration: $window_size,$2,$3,$4\n!;
+					}
+					elsif($line=~/^([0-9]+),([0-9]+):\s\(\s*([0-9]+),\s*([0-9]+),\s*([0-9]+)[,\)]/)
+					{
+						my $x=$1;
+						my $y=$2;
+						
+						if($x >= $start_x && $x <= $end_x) 
 						{
-							if($max_intensity eq '65535') 
-							{
-								print OUT qq!$x_,$y: (65535,65535,65535)  #FFFFFFFFFFFF  white\n!;
-							}
-							else
-							{# $max_intensity eq '255'
-								if ($type eq 'graya')
-								{
-									print OUT qq!$x_,$y: (255,255,255,255)  #FFFFFF  graya(255,255,255,1)\n!;
-								}
-								else
-								{
-									print OUT qq!$x_,$y: (255,255,255)  #FFFFFF  gray(255,255,255)\n!;
-								}
-								
-							}
-						}
-						#{ ; }
-						else
-						{
-							if ($x>=$cur_end_lane_x1+$y/$y_max*($cur_end_lane_x2-$cur_end_lane_x1)) #we are in the cutout triangle (right side)
+							my $x_ = $x - $start_x;
+							
+							if ($x<=$cur_st_lane_x1+$y/$y_max*($cur_st_lane_x2-$cur_st_lane_x1)) #we are in the cutout triangle (left side)
 							#{ print OUT qq!$x_,$y:(65535,    0,    0)  #FFFF00000000  red\n!; }
 							{
 								if($max_intensity eq '65535') 
@@ -297,19 +285,44 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 									
 								}
 							}
-							
 							#{ ; }
-							else 
-							{ 
-								#print out the slanted lane
-								$line =~ s/^([0-9]+)/$x_/; print OUT qq!$line!;
-								$line_n =~ s/^([0-9]+)/$x_/; print OUT_N qq!$line_n!;
-								$line_nn =~ s/^([0-9]+)/$x_/; print OUT_NN qq!$line_nn!;
-							} 
+							else
+							{
+								if ($x>=$cur_end_lane_x1+$y/$y_max*($cur_end_lane_x2-$cur_end_lane_x1)) #we are in the cutout triangle (right side)
+								#{ print OUT qq!$x_,$y:(65535,    0,    0)  #FFFF00000000  red\n!; }
+								{
+									if($max_intensity eq '65535') 
+									{
+										print OUT qq!$x_,$y: (65535,65535,65535)  #FFFFFFFFFFFF  white\n!;
+									}
+									else
+									{# $max_intensity eq '255'
+										if ($type eq 'graya')
+										{
+											print OUT qq!$x_,$y: (255,255,255,255)  #FFFFFF  graya(255,255,255,1)\n!;
+										}
+										else
+										{
+											print OUT qq!$x_,$y: (255,255,255)  #FFFFFF  gray(255,255,255)\n!;
+										}
+										
+									}
+								}
+								
+								#{ ; }
+								else 
+								{ 
+									#print out the slanted lane
+									$line =~ s/^([0-9]+)/$x_/; print OUT qq!$line!;
+									$line_n =~ s/^([0-9]+)/$x_/; print OUT_N qq!$line_n!;
+									$line_nn =~ s/^([0-9]+)/$x_/; print OUT_NN qq!$line_nn!;
+									$line_nnn =~ s/^([0-9]+)/$x_/; print OUT_NNN qq!$line_nnn!;
+								} 
+							}
 						}
 					}
-				}
-				else { print LOG "Alert!  Error reading line of image file: '$line'\n"; }
+					else { print LOG "Alert!  Error reading line of image file: '$line'\n"; }
+				} else { print LOG "Alert! Error reading line of norm'd (3) image file (line of image file: '$line').\n"; }
 			} else { print LOG "Alert! Error reading line of norm'd (2) image file (line of image file: '$line').\n"; }
 		} else { print LOG "Alert! Error reading line of norm'd image file (line of image file: '$line').\n"; }
 	}
@@ -319,6 +332,9 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 	close(OUT_N);
 	close(IN_NN);
 	close(OUT_NN);
+	
+	close(IN_NNN);
+	close(OUT_NNN);
 	
 	my $ROTATE = 1;
 	if ($ROTATE)
@@ -338,6 +354,9 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 			
 			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
 			print LOG "Performed ImageMagick rotate ($ret) for (norm2) Lane $lane_i_display, angle = $rotate_angle.\n";
+			
+			$ret = `"$IMAGEMAGICK_DIR/mogrify" "-rotate" "$rotate_angle" "$gel_image_file_root.lane.$lane_i_display.nnn.txt" 2>&1`;
+			print LOG "Performed ImageMagick rotate ($ret) for (norm3) Lane $lane_i_display, angle = $rotate_angle.\n";
 			
 			#trim/shave extra whitespace
 			#$ret = `"$IMAGEMAGICK_DIR/mogrify" "-fuzz" "1%" "-trim" "$gel_image_file_root.lane.$lane_i_display.txt" 2>&1`;
@@ -362,6 +381,10 @@ for($lane_i = 0; $lane_i < $num_found_lanes; $lane_i++)
 	
 	$ret = `"$IMAGEMAGICK_DIR/mogrify" "-format" "png" "$gel_image_file_root.lane.$lane_i_display.nn.txt" 2>&1`;
 	print LOG "Performed ImageMagick format ($ret) for (norm2) Lane $lane_i_display.\n";
+	
+	$ret = `"$IMAGEMAGICK_DIR/mogrify" "-format" "png" "$gel_image_file_root.lane.$lane_i_display.nnn.txt" 2>&1`;
+	print LOG "Performed ImageMagick format ($ret) for (norm3) Lane $lane_i_display.\n";
+	
 }
 
 close(LOG);
