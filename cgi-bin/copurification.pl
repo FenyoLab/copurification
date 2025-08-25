@@ -1270,16 +1270,32 @@ START_HTML
 									my $id = $1;
 									$citation = "PMID: <a href='https://www.ncbi.nlm.nih.gov/pubmed/$id' target='_blank'>$id</a>";  
                                 }
+								# Handle DOI in the format 'DOI: ...'
+								elsif ($citation =~ /DOI:\s*(\S+)/i) {
+									my $doi = $1;
+									$citation = "DOI: <a href='https://doi.org/$doi' target='_blank'>$doi</a>";
+								}
                             }
 							else { $citation='(none)'; }
 							
 							if ($xref)
 							{
+								# IntAct
                                 if ($xref =~ /IntAct:\s*([0-9\-A-Za-z]+)/i)
 								{
 									my $id = $1;
 									$xref = "IntAct: <a href='https://www.ebi.ac.uk/intact/search/do/search?searchString=imex:$id' target='_blank'>$id</a>";  
                                 }
+								# Pride
+								elsif ($xref =~ /Pride:\s*(PXD\d+)/i) {
+									my $id = $1;
+									$xref = "PRIDE: <a href='https://www.ebi.ac.uk/pride/archive/projects/$id' target='_blank'>$id</a>";  
+								}
+								# MassIVE
+								elsif ($xref =~ /MassIVE:\s*(PXD\d+)/i) {
+									my $id = $1;
+									$xref = "MassIVE: <a href='https://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=$id' target='_blank'>$id</a>";  
+								}
                             }
 							else { $xref='(none)'; }
                             
